@@ -1,0 +1,1274 @@
+<title>AmigaTerm</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap">
+<style>
+:root{
+  --wb-blue:#0055AA;
+  --wb-blue-dk:#003A75;
+  --wb-orange:#FF8800;
+  --wb-white:#FFFFFF;
+  --wb-black:#000000;
+
+  --ph:#3BFF6E;
+  --ph-dim:#1B7A38;
+  --screen:#07110A;
+
+  --amber:#FFB627;
+  --amber-dim:#8A6212;
+  --guru:#FF2A2A;
+
+  --scan-op:.30;
+  --bloom-r:5px;
+  --bloom-op:.55;
+  --flick-amp:.030;
+  --flick-dur:5.5s;
+  --curve:14px;
+  --vig-op:.72;
+
+  --chrome:"Press Start 2P","Courier New",monospace;
+  --term:"VT323","Courier New",monospace;
+}
+
+*{box-sizing:border-box}
+
+body{
+  background:var(--wb-blue);
+  color:var(--wb-white);
+  font-family:var(--term);
+  height:100vh;
+  padding:0;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}
+
+/* ── Workbench desktop ─────────────────────────────────────── */
+
+.menubar{
+  flex:0 0 auto;
+  background:var(--wb-white);
+  color:var(--wb-black);
+  font-family:var(--chrome);
+  font-size:8px;
+  letter-spacing:.5px;
+  padding:7px 10px;
+  display:flex;gap:18px;align-items:center;
+  border-bottom:2px solid var(--wb-black);
+}
+.menubar .grow{flex:1}
+.menubar .mem{color:var(--wb-blue-dk)}
+
+.desktop{
+  flex:1 1 auto;min-height:0;padding:12px;
+  display:flex;position:relative;
+}
+
+.window{
+  flex:1 1 auto;min-width:0;
+  display:flex;flex-direction:column;
+  background:var(--wb-blue);
+  border:2px solid var(--wb-white);
+  outline:2px solid var(--wb-black);
+  box-shadow:0 0 0 2px var(--wb-blue-dk);
+}
+
+.titlebar{
+  flex:0 0 auto;display:flex;align-items:stretch;
+  background:var(--wb-orange);
+  border-bottom:2px solid var(--wb-white);
+  font-family:var(--chrome);font-size:8px;color:var(--wb-black);
+}
+.title{
+  flex:1 1 auto;min-width:0;padding:8px 10px;letter-spacing:.5px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.title b{font-weight:400;color:var(--wb-blue-dk)}
+.gadget{
+  flex:0 0 auto;width:30px;display:grid;place-items:center;
+  border-left:2px solid var(--wb-white);
+  background:var(--wb-orange);color:var(--wb-black);
+  cursor:pointer;font-size:9px;
+}
+.gadget:hover{background:var(--wb-black);color:var(--wb-orange)}
+.gadget:focus-visible{outline:2px solid var(--wb-white);outline-offset:-4px}
+.gadget.depth{border-left:0;border-right:2px solid var(--wb-white)}
+
+.workarea{flex:1 1 auto;min-height:0;display:flex;background:var(--wb-black)}
+
+/* ── CRT screen ────────────────────────────────────────────── */
+
+.screenwrap{
+  flex:1 1 auto;min-width:0;position:relative;
+  background:var(--screen);
+  border-radius:var(--curve);
+  overflow:hidden;margin:6px;
+  transform:perspective(1400px) rotateX(.35deg);
+  animation:flicker var(--flick-dur) infinite steps(24);
+}
+@keyframes flicker{
+  0%,100%{filter:brightness(1)}
+  47%{filter:brightness(calc(1 - var(--flick-amp)))}
+  49%{filter:brightness(calc(1 + var(--flick-amp)))}
+  51%{filter:brightness(calc(1 - var(--flick-amp)))}
+  78%{filter:brightness(calc(1 + var(--flick-amp)))}
+}
+
+.term{
+  position:absolute;inset:0;padding:16px 20px;
+  overflow-y:auto;overflow-x:hidden;
+  font-family:var(--term);font-size:19px;line-height:1.22;
+  color:var(--ph);
+  text-shadow:0 0 var(--bloom-r) rgba(59,255,110,var(--bloom-op));
+  white-space:pre-wrap;word-break:break-word;scrollbar-width:none;
+}
+.term::-webkit-scrollbar{display:none}
+.term .dim{color:var(--ph-dim);text-shadow:none}
+.term .user{color:#CFFFDD}
+.term .tool{color:var(--amber);text-shadow:0 0 var(--bloom-r) rgba(255,182,39,var(--bloom-op))}
+.term .ok{color:#7CFF9E}
+.term .logo{color:var(--ph)}
+
+.cursor{
+  display:inline-block;width:.55em;height:1em;background:var(--ph);
+  vertical-align:-.14em;animation:blink 1.06s steps(1) infinite;
+}
+@keyframes blink{0%,50%{opacity:1}50.01%,100%{opacity:0}}
+
+.layer{position:absolute;inset:0;pointer-events:none}
+.scanlines{
+  background:repeating-linear-gradient(to bottom,
+    rgba(0,0,0,.55) 0px,rgba(0,0,0,.55) 1px,
+    rgba(0,0,0,0) 1px,rgba(0,0,0,0) 3px);
+  opacity:var(--scan-op);mix-blend-mode:multiply;
+}
+.rollbar{
+  background:linear-gradient(to bottom,
+    rgba(255,255,255,0) 0%,rgba(120,255,160,.055) 45%,
+    rgba(120,255,160,.10) 50%,rgba(120,255,160,.055) 55%,
+    rgba(255,255,255,0) 100%);
+  height:22%;inset:auto 0 auto 0;
+  animation:roll 7.5s linear infinite;
+}
+@keyframes roll{from{top:-25%}to{top:105%}}
+.vignette{
+  background:radial-gradient(ellipse 118% 112% at 50% 50%,
+    rgba(0,0,0,0) 52%,rgba(0,0,0,.55) 82%,rgba(0,0,0,.95) 100%);
+  opacity:var(--vig-op);border-radius:var(--curve);
+}
+.glare{background:radial-gradient(ellipse 46% 30% at 28% 12%,
+  rgba(190,255,210,.055) 0%,rgba(0,0,0,0) 70%)}
+
+.glitchlayer{
+  position:absolute;inset:0;pointer-events:none;opacity:0;
+  font-family:var(--term);font-size:19px;line-height:1.22;
+  padding:16px 20px;white-space:pre-wrap;overflow:hidden;
+}
+.screenwrap.glitching .glitchlayer{opacity:1}
+.glitchlayer.r{color:rgba(255,40,40,.85);mix-blend-mode:screen}
+.glitchlayer.c{color:rgba(40,220,255,.85);mix-blend-mode:screen}
+.screenwrap.glitching .term{animation:slice .18s steps(3) infinite}
+@keyframes slice{
+  0%{clip-path:inset(0 0 0 0);transform:translateX(0)}
+  33%{clip-path:inset(18% 0 46% 0);transform:translateX(-7px)}
+  66%{clip-path:inset(62% 0 12% 0);transform:translateX(9px)}
+  100%{clip-path:inset(0 0 0 0);transform:translateX(0)}
+}
+
+.boot{
+  position:absolute;inset:0;background:var(--screen);
+  padding:16px 20px;font-family:var(--term);font-size:19px;line-height:1.3;
+  color:var(--ph);text-shadow:0 0 var(--bloom-r) rgba(59,255,110,var(--bloom-op));
+  white-space:pre-wrap;z-index:5;
+}
+.boot[hidden]{display:none}
+
+.guru{
+  position:absolute;top:0;left:0;right:0;z-index:9;
+  background:#000;border:4px solid var(--guru);padding:12px;text-align:center;
+  font-family:var(--term);font-size:20px;color:var(--guru);
+  animation:guruflash .82s steps(1) infinite;
+}
+.guru[hidden]{display:none}
+@keyframes guruflash{0%,50%{border-color:var(--guru)}50.01%,100%{border-color:#000}}
+
+/* ── panels (HUD column + mission bar share this) ──────────── */
+
+.panel{
+  flex:1 1 auto;min-height:0;min-width:0;
+  background:#0A0A06;
+  border:2px solid var(--amber-dim);
+  display:flex;flex-direction:column;
+  transform-origin:center;
+  animation:wbopen .2s steps(5);
+}
+.panel[data-grow="0"]{flex:0 0 auto}
+@keyframes wbopen{from{transform:scaleY(.05);opacity:.35}to{transform:scaleY(1);opacity:1}}
+.panel.closing{animation:wbclose .16s steps(4) forwards}
+@keyframes wbclose{from{transform:scaleY(1);opacity:1}to{transform:scaleY(.05);opacity:0}}
+
+.panel-hd{
+  flex:0 0 auto;background:var(--amber-dim);color:#000;
+  font-family:var(--chrome);font-size:7px;letter-spacing:.6px;
+  padding:6px 7px;display:flex;justify-content:space-between;gap:8px;align-items:center;
+}
+.panel.crit{border-color:#FF4444}
+.panel.crit .panel-hd{background:#FF4444}
+.panel-hd .dot{width:7px;height:7px;background:#000;animation:blink 1.4s steps(1) infinite}
+.panel-bd{
+  flex:1 1 auto;min-height:0;overflow:hidden;padding:7px 8px;
+  font-family:var(--term);font-size:15px;line-height:1.18;
+  color:var(--amber);text-shadow:0 0 4px rgba(255,182,39,.45);
+  font-variant-numeric:tabular-nums;white-space:pre;
+}
+.panel-bd.pad0{padding:0}
+.panel-bd .fade{opacity:.32}
+.panel-bd .hot{color:#FFE9B0}
+.panel-bd .bad{color:#FF6B6B}
+.panel-bd canvas{display:block;width:100%;height:100%;image-rendering:pixelated}
+
+.hud{
+  flex:0 0 300px;display:flex;flex-direction:column;gap:6px;
+  margin:6px 6px 6px 0;min-height:0;
+}
+.hud[hidden]{display:none}
+
+.gauge{display:flex;align-items:center;gap:7px;margin:3px 0}
+.gauge .lbl{flex:0 0 52px;font-family:var(--chrome);font-size:6px;letter-spacing:.4px;color:var(--amber-dim)}
+.gauge .bar{flex:1 1 auto;height:9px;background:#1A1206;border:1px solid var(--amber-dim);position:relative;overflow:hidden}
+.gauge .fill{position:absolute;inset:0 auto 0 0;width:20%;
+  background:repeating-linear-gradient(to right,var(--amber) 0 3px,#0A0A06 3px 5px);
+  transition:width .28s linear}
+.gauge .val{flex:0 0 34px;text-align:right;font-size:14px}
+
+/* ── mission bar ───────────────────────────────────────────── */
+
+.missionbar{
+  flex:0 0 auto;display:flex;gap:6px;
+  padding:0 6px 6px 6px;background:var(--wb-black);
+  height:190px;overflow:hidden;
+  transition:height .22s steps(5), padding .22s steps(5);
+}
+.missionbar[data-open="0"]{height:0;padding-bottom:0}
+.missionbar .map{flex:1 1 auto}
+.missionbar .log{flex:0 0 296px}
+.missionbar .cd{flex:0 0 178px}
+
+.cdbody{
+  display:flex;flex-direction:column;justify-content:center;
+  gap:5px;text-align:center;
+}
+.cdbig{
+  font-size:38px;line-height:1;color:#FFE9B0;
+  text-shadow:0 0 10px rgba(255,182,39,.7);
+}
+.cdbig.bad{color:#FF6B6B;text-shadow:0 0 12px rgba(255,60,60,.8)}
+.cdsub{font-family:var(--chrome);font-size:6px;letter-spacing:.6px;color:var(--amber-dim)}
+.cdbar{height:10px;background:#1A1206;border:1px solid var(--amber-dim);position:relative;overflow:hidden;margin-top:4px}
+.cdbar i{position:absolute;inset:0 auto 0 0;width:0%;background:var(--amber);transition:width .2s linear}
+.cdbar.bad i{background:#FF4444}
+
+/* ── operation strip ───────────────────────────────────────── */
+
+.opstrip{
+  flex:0 0 auto;display:flex;align-items:center;gap:10px;
+  background:#0A0A06;border-top:2px solid var(--wb-white);padding:8px 10px;
+  font-family:var(--term);font-size:16px;color:var(--amber);
+  font-variant-numeric:tabular-nums;
+}
+.op-label{
+  font-family:var(--chrome);font-size:7px;letter-spacing:.6px;
+  color:#000;background:var(--amber);padding:5px 7px;
+  flex:0 0 auto;min-width:210px;text-align:center;
+}
+.op-label.crit{background:#FF4444;color:#000}
+.op-bar{flex:1 1 auto;height:12px;background:#1A1206;border:1px solid var(--amber-dim);position:relative;overflow:hidden}
+.op-fill{position:absolute;inset:0 auto 0 0;width:0%;
+  background:linear-gradient(to right,var(--amber-dim),var(--amber));transition:width .2s linear}
+.op-hex{flex:0 0 auto;color:var(--amber-dim);letter-spacing:1px}
+
+/* ── gadget bar ────────────────────────────────────────────── */
+
+.gadgetbar{
+  flex:0 0 auto;display:flex;flex-wrap:wrap;gap:6px;align-items:center;
+  background:var(--wb-blue);border-top:2px solid var(--wb-white);padding:8px 10px;
+}
+.gadgetbar .cap{font-family:var(--chrome);font-size:7px;letter-spacing:.5px;color:var(--wb-white);margin-right:2px}
+.btn{
+  font-family:var(--chrome);font-size:7px;letter-spacing:.5px;
+  background:var(--wb-white);color:var(--wb-black);border:0;
+  border-top:2px solid #FFF;border-left:2px solid #FFF;
+  border-right:2px solid var(--wb-blue-dk);border-bottom:2px solid var(--wb-blue-dk);
+  padding:7px 9px;cursor:pointer;
+}
+.btn:hover{background:var(--wb-orange)}
+.btn:focus-visible{outline:2px solid var(--wb-orange);outline-offset:2px}
+.btn[aria-pressed="true"]{
+  background:var(--wb-black);color:var(--wb-orange);
+  border-top-color:var(--wb-blue-dk);border-left-color:var(--wb-blue-dk);
+  border-right-color:#FFF;border-bottom-color:#FFF;
+}
+.btn.red{background:#FFB3B3}
+.btn.red:hover{background:#FF4444;color:#FFF}
+.gadgetbar .sep{flex:1 1 auto}
+.gadgetbar .hint{font-family:var(--term);font-size:15px;color:#BFE3FF}
+
+/* ── floating requesters ───────────────────────────────────── */
+
+.requester{
+  position:absolute;z-index:40;min-width:252px;
+  background:var(--wb-blue);border:2px solid var(--wb-white);
+  outline:2px solid var(--wb-black);box-shadow:4px 4px 0 rgba(0,0,0,.45);
+  transform-origin:center;animation:wbopen .16s steps(4);
+}
+.requester.closing{animation:wbclose .14s steps(3) forwards}
+.requester.alert{background:#7A0F0F;border-color:#FF6B6B}
+.req-hd{
+  background:var(--wb-orange);color:var(--wb-black);
+  font-family:var(--chrome);font-size:7px;letter-spacing:.5px;padding:6px 8px;
+  border-bottom:2px solid var(--wb-white);display:flex;justify-content:space-between;gap:10px;
+}
+.requester.alert .req-hd{background:#FF6B6B}
+.req-bd{padding:12px 12px 6px;font-family:var(--term);font-size:17px;line-height:1.25;
+  color:var(--wb-white);text-align:center}
+.req-ft{display:flex;gap:8px;padding:10px 12px;justify-content:center}
+
+@media (max-width:1100px){
+  .missionbar .log{flex:0 0 220px}
+  .missionbar .cd{display:none}
+}
+@media (max-width:900px){
+  .workarea{flex-direction:column}
+  .hud{flex:0 0 190px;flex-direction:row;margin:0 6px 6px 6px}
+  .missionbar{height:150px}
+}
+@media (prefers-reduced-motion:reduce){
+  .screenwrap,.rollbar,.cursor,.guru,.panel,.requester,.panel-hd .dot{animation:none}
+  .screenwrap.glitching .term{animation:none}
+}
+</style>
+
+<div class="menubar">
+  <span>AmigaTerm 1.0</span>
+  <span class="mem">1,048,576 graphics mem</span>
+  <span class="mem">2,097,152 other mem</span>
+  <span class="grow"></span>
+  <span class="mem" id="clock">--:--:--</span>
+</div>
+
+<div class="desktop" id="desktop">
+  <div class="window">
+
+    <div class="titlebar">
+      <div class="gadget depth" title="Depth arrange">&#9636;</div>
+      <div class="title">AmigaShell &nbsp;<b id="titleOp">~/Dev/amiga-terminal</b></div>
+      <div class="gadget" title="Shrink">&#9633;</div>
+      <div class="gadget" title="Zoom">&#9635;</div>
+      <div class="gadget" title="Close">&#10005;</div>
+    </div>
+
+    <div class="workarea">
+      <div class="screenwrap" id="screenwrap">
+        <div class="term" id="term"></div>
+        <div class="glitchlayer r" id="glitchR"></div>
+        <div class="glitchlayer c" id="glitchC"></div>
+        <div class="layer scanlines"></div>
+        <div class="layer rollbar"></div>
+        <div class="layer glare"></div>
+        <div class="layer vignette"></div>
+        <div class="boot" id="boot"></div>
+        <div class="guru" id="guru" hidden>
+          Software Failure. &nbsp;Press left mouse button to continue.<br>
+          Guru Meditation #00000004.0000AAC0
+        </div>
+      </div>
+      <div class="hud" id="hud"></div>
+    </div>
+
+    <div class="missionbar" id="missionbar" data-open="0">
+      <div class="panel map" id="mapPanel">
+        <div class="panel-hd"><span id="mapTitle">GLOBAL SITUATION DISPLAY</span><span id="mapSub">NORAD / DEFCON 5</span></div>
+        <div class="panel-bd pad0"><canvas id="mapCanvas"></canvas></div>
+      </div>
+      <div class="panel log">
+        <div class="panel-hd"><span>MISSION LOG</span><span class="dot"></span></div>
+        <div class="panel-bd" id="logBody"></div>
+      </div>
+      <div class="panel cd" id="cdPanel">
+        <div class="panel-hd"><span id="cdTitle">STATUS</span><span id="cdCode">0000</span></div>
+        <div class="panel-bd cdbody">
+          <div class="cdbig" id="cdBig">--:--</div>
+          <div class="cdsub" id="cdSub">STANDBY</div>
+          <div class="cdbar" id="cdBar"><i></i></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="opstrip">
+      <span class="op-label" id="opLabel">STANDBY</span>
+      <span class="op-bar"><span class="op-fill" id="opFill"></span></span>
+      <span class="op-hex" id="opHex">0000 0000 0000</span>
+    </div>
+
+    <div class="gadgetbar">
+      <span class="cap">FX</span>
+      <button class="btn" data-preset="calm">CALM</button>
+      <button class="btn" data-preset="medium" aria-pressed="true">MEDIUM</button>
+      <button class="btn" data-preset="max">MAX</button>
+      <span class="cap" style="margin-left:8px">OPS</span>
+      <button class="btn" data-mission="kremlin">KREMLIN</button>
+      <button class="btn red" data-mission="icbm">ICBM</button>
+      <button class="btn red" data-mission="delworld">DELETE WORLD</button>
+      <button class="btn" data-mission="gibson">GIBSON</button>
+      <button class="btn" data-mission="satellite">SATCOM</button>
+      <span class="cap" style="margin-left:8px">FX</span>
+      <button class="btn" id="bGlitch">GLITCH</button>
+      <button class="btn" id="bGuru">GURU</button>
+      <button class="btn" id="bReq">REQUESTER</button>
+      <button class="btn" id="bBoot">REBOOT</button>
+      <button class="btn" id="bHud" aria-pressed="true">HUD</button>
+      <span class="sep"></span>
+      <span class="hint">F9 fx &middot; F10 hud &middot; prototype, not a live shell</span>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const root = document.documentElement;
+const rnd = (a,b) => a + Math.random()*(b-a);
+const pick = a => a[Math.floor(Math.random()*a.length)];
+const hex = n => Array.from({length:n},()=>"0123456789ABCDEF"[Math.floor(Math.random()*16)]).join("");
+
+/* ── intensity presets ─────────────────────────────────────── */
+
+const PRESETS = {
+  calm:   {scanlines:12, bloom:14, curvature:6,  glitchRate:1,  flicker:1},
+  medium: {scanlines:45, bloom:30, curvature:15, glitchRate:8,  flicker:5},
+  max:    {scanlines:88, bloom:78, curvature:34, glitchRate:34, flicker:26}
+};
+let cfg = {...PRESETS.medium};
+
+function applyCfg(c){
+  const n = k => Math.max(0, Math.min(100, Number(c[k]) || 0));
+  root.style.setProperty("--scan-op",  (n("scanlines")/100 * .62).toFixed(3));
+  root.style.setProperty("--bloom-r",  (1 + n("bloom")/100 * 13).toFixed(1)+"px");
+  root.style.setProperty("--bloom-op", (.25 + n("bloom")/100 * .6).toFixed(3));
+  root.style.setProperty("--curve",    (4 + n("curvature")/100 * 46).toFixed(0)+"px");
+  root.style.setProperty("--vig-op",   (.35 + n("curvature")/100 * .62).toFixed(3));
+  root.style.setProperty("--flick-amp",(n("flicker")/100 * .17).toFixed(3));
+  root.style.setProperty("--flick-dur",(7.5 - n("flicker")/100 * 6).toFixed(2)+"s");
+}
+applyCfg(cfg);
+
+const order = ["calm","medium","max"];
+let presetIdx = 1;
+function setPreset(name){
+  presetIdx = order.indexOf(name);
+  cfg = {...PRESETS[name]};
+  applyCfg(cfg);
+  document.querySelectorAll("[data-preset]").forEach(b =>
+    b.setAttribute("aria-pressed", String(b.dataset.preset === name)));
+}
+document.querySelectorAll("[data-preset]").forEach(b =>
+  b.addEventListener("click", () => setPreset(b.dataset.preset)));
+
+/* ── glitch engine ─────────────────────────────────────────── */
+
+const wrap = $("screenwrap"), term = $("term");
+const gR = $("glitchR"), gC = $("glitchC");
+
+function glitch(ms){
+  const dur = ms || rnd(90, 380);
+  const txt = term.innerHTML;
+  gR.innerHTML = txt; gC.innerHTML = txt;
+  gR.style.transform = `translate(${rnd(-9,9).toFixed(1)}px,${rnd(-3,3).toFixed(1)}px)`;
+  gC.style.transform = `translate(${rnd(-9,9).toFixed(1)}px,${rnd(-3,3).toFixed(1)}px)`;
+  wrap.classList.add("glitching");
+  setTimeout(() => {
+    wrap.classList.remove("glitching");
+    gR.innerHTML = ""; gC.innerHTML = "";
+  }, dur);
+}
+
+// ponytail: prototype glitches by cloning DOM text; the Electron build
+// copies the xterm canvas with drawImage instead. Same look, different source.
+function scheduleGlitch(){
+  const wait = rnd(1400, 14000) * (12 / Math.max(1, cfg.glitchRate));
+  setTimeout(() => { glitch(); scheduleGlitch(); }, wait);
+}
+scheduleGlitch();
+
+const guruEl = $("guru");
+function guru(){
+  guruEl.hidden = false;
+  glitch(260);
+  setTimeout(() => { guruEl.hidden = true; }, 2600);
+}
+
+/* ── world map data ────────────────────────────────────────── */
+/* 64x32 equirectangular land mask, stored as per-row column spans.
+   Deliberately coarse — at CRT scale it reads as continents, and the
+   whole grid fits in a dozen lines instead of a bundled dataset.
+   ponytail: hand-sketched land mask, swap for real coastline data
+   only if someone actually complains it's wrong. */
+
+const LAND = {
+  1:[[8,20],[22,27],[48,52]],
+  2:[[6,21],[21,28],[33,34],[40,62]],
+  3:[[3,8],[8,21],[22,27],[33,36],[37,64]],
+  4:[[2,8],[8,22],[23,27],[30,31],[33,37],[37,64]],
+  5:[[2,7],[7,22],[32,37],[37,64]],
+  6:[[7,22],[30,31],[32,38],[38,64]],
+  7:[[9,21],[31,39],[39,60],[59,60]],
+  8:[[10,20],[30,36],[36,41],[41,50],[50,57]],
+  9:[[10,20],[30,38],[40,45],[45,57]],
+  10:[[11,19],[29,40],[40,43],[44,48],[48,57]],
+  11:[[13,18],[28,40],[40,44],[44,49],[50,55]],
+  12:[[14,17],[18,19],[28,40],[40,44],[44,49],[49,53],[55,56]],
+  13:[[15,18],[28,42],[44,48],[49,54],[55,56]],
+  14:[[17,22],[28,43],[47,48],[50,54],[55,56]],
+  15:[[17,25],[28,42],[49,57]],
+  16:[[17,26],[30,41],[50,58],[58,59]],
+  17:[[18,27],[30,40],[50,58],[58,60]],
+  18:[[18,27],[31,40],[40,41],[53,59]],
+  19:[[18,27],[31,39],[40,41],[52,60]],
+  20:[[19,26],[32,38],[40,41],[52,60]],
+  21:[[19,24],[33,37],[52,60]],
+  22:[[19,23],[34,36],[53,59],[62,63]],
+  23:[[19,22],[62,63]],
+  24:[[19,22],[62,63]],
+  25:[[20,21]],
+  28:[[0,64]],29:[[0,64]],30:[[0,64]],31:[[0,64]]
+};
+
+const MAPW = 64, MAPH = 32;
+const landGrid = Array.from({length:MAPH}, () => new Array(MAPW).fill(0));
+for (const r in LAND) for (const [a,b] of LAND[r])
+  for (let c = a; c < b && c < MAPW; c++) landGrid[r][c] = 1;
+
+const REGIONS = [
+  {n:"ANTARCTICA",    r:[27,32], c:[0,64]},
+  {n:"NORTH-AMERICA", r:[0,15],  c:[0,28]},
+  {n:"SOUTH-AMERICA", r:[13,27], c:[14,29]},
+  {n:"EUROPE",        r:[1,11],  c:[29,41]},
+  {n:"AFRICA",        r:[9,24],  c:[26,44]},
+  {n:"ASIA",          r:[0,17],  c:[40,64]},
+  {n:"OCEANIA",       r:[14,27], c:[46,64]}
+];
+function regionOf(r,c){
+  for (const g of REGIONS)
+    if (r >= g.r[0] && r < g.r[1] && c >= g.c[0] && c < g.c[1]) return g.n;
+  return "OCEANIA";
+}
+const deleted = new Set();
+
+const CITY = {
+  MOSCOW:[55.7,37.6], KYIV:[50.4,30.5], LONDON:[51.5,-0.1],
+  WASHINGTON:[38.9,-77.0], BEIJING:[39.9,116.4], PYONGYANG:[39.0,125.7],
+  TEHRAN:[35.7,51.4], "CHEYENNE MTN":[38.7,-104.8], VANDENBERG:[34.7,-120.6],
+  BERLIN:[52.5,13.4], TOKYO:[35.7,139.7], CANBERRA:[-35.3,149.1],
+  "DIEGO GARCIA":[-7.3,72.4], BRASILIA:[-15.8,-47.9]
+};
+
+/* ── map painter ───────────────────────────────────────────── */
+
+const mapCv = $("mapCanvas"), mapCtx = mapCv.getContext("2d");
+let mapState = {targets:[], links:[], strikes:[], rings:[], sub:"NORAD / DEFCON 5"};
+
+function mapGeom(w,h){
+  const cs = Math.min(w/MAPW, h/MAPH);
+  return {cs, ox:(w - cs*MAPW)/2, oy:(h - cs*MAPH)/2};
+}
+function ll2xy(lat,lon,g){
+  return [g.ox + ((lon+180)/5.625)*g.cs, g.oy + ((90-lat)/5.625)*g.cs];
+}
+
+function paintMap(t){
+  const w = mapCv.width, h = mapCv.height;
+  if (!w) return;
+  const ctx = mapCtx, g = mapGeom(w,h);
+  ctx.clearRect(0,0,w,h);
+
+  // ocean dot grid + land cells
+  for (let r = 0; r < MAPH; r++){
+    for (let c = 0; c < MAPW; c++){
+      const x = g.ox + c*g.cs, y = g.oy + r*g.cs;
+      if (landGrid[r][c]){
+        if (deleted.has(regionOf(r,c))){
+          ctx.fillStyle = "rgba(255,60,60,.16)";
+          ctx.fillRect(x + g.cs*.35, y + g.cs*.35, Math.max(1,g.cs*.3), Math.max(1,g.cs*.3));
+        } else {
+          ctx.fillStyle = "rgba(255,182,39,.62)";
+          ctx.fillRect(x, y, Math.max(1,g.cs-.6), Math.max(1,g.cs-.6));
+        }
+      } else if ((r+c) % 2 === 0){
+        ctx.fillStyle = "rgba(255,182,39,.10)";
+        ctx.fillRect(x + g.cs*.4, y + g.cs*.4, 1, 1);
+      }
+    }
+  }
+
+  // static links (breach routes)
+  ctx.lineWidth = 1;
+  mapState.links.forEach(l => {
+    const a = ll2xy(...CITY[l.from], g), b = ll2xy(...CITY[l.to], g);
+    const mx = (a[0]+b[0])/2, my = (a[1]+b[1])/2 - Math.hypot(b[0]-a[0], b[1]-a[1])*.28;
+    ctx.strokeStyle = "rgba(255,233,176,.75)";
+    ctx.setLineDash([4,3]);
+    ctx.lineDashOffset = -t*22;
+    ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.quadraticCurveTo(mx,my,b[0],b[1]); ctx.stroke();
+    ctx.setLineDash([]);
+  });
+
+  // ICBM arcs
+  mapState.strikes.forEach(s => {
+    const p = Math.max(0, Math.min(1, (t - s.t0) / s.dur));
+    if (p <= 0) return;
+    const a = ll2xy(...CITY[s.from], g), b = ll2xy(...CITY[s.to], g);
+    const d = Math.hypot(b[0]-a[0], b[1]-a[1]);
+    const mx = (a[0]+b[0])/2, my = (a[1]+b[1])/2 - d*.45;
+    const qx = (u) => (1-u)*(1-u)*a[0] + 2*(1-u)*u*mx + u*u*b[0];
+    const qy = (u) => (1-u)*(1-u)*a[1] + 2*(1-u)*u*my + u*u*b[1];
+
+    ctx.strokeStyle = "rgba(255,68,68,.85)";
+    ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.moveTo(a[0],a[1]);
+    for (let u = 0; u <= p; u += .02) ctx.lineTo(qx(u), qy(u));
+    ctx.stroke();
+    ctx.lineWidth = 1;
+
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillRect(qx(p)-2, qy(p)-2, 4, 4);
+
+    if (p >= 1 && !s.hit){
+      s.hit = true;
+      mapState.rings.push({x:b[0], y:b[1], t0:t});
+      glitch(180);
+    }
+  });
+
+  // impact rings
+  mapState.rings = mapState.rings.filter(r => t - r.t0 < 1.6);
+  mapState.rings.forEach(r => {
+    const p = (t - r.t0) / 1.6;
+    ctx.strokeStyle = `rgba(255,68,68,${(1-p).toFixed(2)})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(r.x, r.y, p*38, 0, Math.PI*2); ctx.stroke();
+    ctx.lineWidth = 1;
+  });
+
+  // targets
+  const blink = Math.sin(t*7) > 0;
+  ctx.font = "10px monospace";
+  mapState.targets.forEach(name => {
+    const [x,y] = ll2xy(...CITY[name], g);
+    ctx.strokeStyle = blink ? "#FF4444" : "rgba(255,68,68,.35)";
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(x-6,y); ctx.lineTo(x+6,y);
+    ctx.moveTo(x,y-6); ctx.lineTo(x,y+6); ctx.stroke();
+    ctx.strokeRect(x-4.5, y-4.5, 9, 9);
+    ctx.lineWidth = 1;
+    ctx.fillStyle = "#FFE9B0";
+    ctx.fillText(name, x + 9, y + 3);
+  });
+  $("mapSub").textContent = mapState.sub;
+}
+
+/* ── line generators ───────────────────────────────────────── */
+
+const G = {
+  hexDump: () => {
+    const off = Math.floor(rnd(0, 0xFFFFF));
+    return `${off.toString(16).toUpperCase().padStart(6,"0")} ${Array.from({length:6},()=>hex(2)).join(" ")} ` +
+      Array.from({length:8},()=>pick("abcdefghijklmnopqrstuvwxyz.$#@%*-_/".split(""))).join("");
+  },
+  portScan: () => {
+    const p = pick([21,22,23,25,80,110,443,1337,4444,8080,9001]);
+    return `10.0.${Math.floor(rnd(0,4))}.${String(Math.floor(rnd(2,254))).padStart(3)}:${String(p).padStart(5)} ` +
+      `${pick(["SYN","ACK","RST","OPEN","FILTERED"]).padEnd(9)}${Math.floor(rnd(1,99))}ms`;
+  },
+  packetTrace: () => `${pick(["TCP","UDP","ICMP","TLS"]).padEnd(5)}${hex(4)}>${hex(4)} ` +
+    `${String(Math.floor(rnd(40,1500))).padStart(4)}B ${pick(["OK ","ERR","RTX"])}`,
+  cryptoKey: () => `${hex(5)} ${hex(5)} ${hex(5)} ${hex(5)}`,
+  procList: () => `${String(Math.floor(rnd(100,9999))).padStart(4)} ` +
+    `${pick(["kickstart","exec.lib","dos.lib","narrator","copperd","blitd","trackdisk","guru"]).padEnd(10)}` +
+    `${pick(["RUN","WAIT","SLP"])} ${String(Math.floor(rnd(0,99))).padStart(2)}%`,
+  fsWalk: () => `SYS:${pick(["src","lib","node_modules",".git","dist","fonts"])}/` +
+    `${pick(["main.js","effects.js","hud.js","style.css","config.json"])}`.padEnd(28) +
+    `${String(Math.floor(rnd(1,400))).padStart(3)}K`
+};
+
+/* ── canvas panel painters ─────────────────────────────────── */
+
+let load = 0.35;
+const BLIPS = Array.from({length:7}, () => ({a: rnd(0,Math.PI*2), d: rnd(.25,.95)}));
+
+function paintScope(ctx,w,h,t){
+  ctx.clearRect(0,0,w,h);
+  ctx.strokeStyle = "rgba(255,182,39,.18)";
+  ctx.beginPath(); ctx.moveTo(0,h/2); ctx.lineTo(w,h/2); ctx.stroke();
+  ctx.strokeStyle = "#FFB627";
+  ctx.beginPath();
+  for (let x = 0; x < w; x++){
+    const p = x/w * Math.PI*6;
+    const y = h/2 + Math.sin(p + t*3)*h*.24*load
+      + Math.sin(p*2.7 - t*4.4)*h*.11*load + (Math.random()-.5)*h*.05*load;
+    x ? ctx.lineTo(x,y) : ctx.moveTo(x,y);
+  }
+  ctx.stroke();
+}
+
+function paintRadar(ctx,w,h,t){
+  ctx.clearRect(0,0,w,h);
+  const cx = w/2, cy = h/2, r = Math.min(w,h)/2 - 4;
+  ctx.strokeStyle = "rgba(255,182,39,.28)";
+  for (let i = 1; i <= 3; i++){ ctx.beginPath(); ctx.arc(cx,cy,r*i/3,0,Math.PI*2); ctx.stroke(); }
+  ctx.beginPath();
+  ctx.moveTo(cx-r,cy); ctx.lineTo(cx+r,cy); ctx.moveTo(cx,cy-r); ctx.lineTo(cx,cy+r);
+  ctx.stroke();
+  const a = t*1.7;
+  const grad = ctx.createLinearGradient(cx,cy,cx+Math.cos(a)*r,cy+Math.sin(a)*r);
+  grad.addColorStop(0,"rgba(255,182,39,.55)"); grad.addColorStop(1,"rgba(255,182,39,0)");
+  ctx.strokeStyle = grad; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx+Math.cos(a)*r, cy+Math.sin(a)*r); ctx.stroke();
+  ctx.lineWidth = 1; ctx.fillStyle = "#FFE9B0";
+  BLIPS.forEach(b => {
+    const da = ((a - b.a) % (Math.PI*2) + Math.PI*2) % (Math.PI*2);
+    const fade = Math.max(0, 1 - da/1.8);
+    if (fade <= 0) return;
+    ctx.globalAlpha = fade;
+    ctx.fillRect(cx + Math.cos(b.a)*r*b.d - 2, cy + Math.sin(b.a)*r*b.d - 2, 4, 4);
+  });
+  ctx.globalAlpha = 1;
+}
+
+function paintGlobe(ctx,w,h,t){
+  ctx.clearRect(0,0,w,h);
+  const cx = w/2, cy = h/2, r = Math.min(w,h)/2 - 5;
+  ctx.strokeStyle = "rgba(255,182,39,.5)";
+  ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.stroke();
+  ctx.strokeStyle = "rgba(255,182,39,.26)";
+  for (let i = 1; i <= 3; i++){
+    const k = r*Math.cos(Math.asin(i/4));
+    ctx.beginPath(); ctx.ellipse(cx, cy - r*i/4, k, k*.22, 0, 0, Math.PI*2); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(cx, cy + r*i/4, k, k*.22, 0, 0, Math.PI*2); ctx.stroke();
+  }
+  for (let i = 0; i < 5; i++){
+    const ph = t*.7 + i*Math.PI/5;
+    ctx.beginPath(); ctx.ellipse(cx, cy, Math.abs(Math.cos(ph))*r, r, 0, 0, Math.PI*2); ctx.stroke();
+  }
+  ctx.fillStyle = "#FFE9B0";
+  BLIPS.slice(0,4).forEach(b => {
+    const ph = t*.7 + b.a;
+    ctx.globalAlpha = Math.cos(ph) > 0 ? 1 : .2;
+    ctx.fillRect(cx + Math.cos(ph)*r*b.d - 2, cy + Math.sin(b.a*3)*r*.55 - 2, 4, 4);
+  });
+  ctx.globalAlpha = 1;
+}
+
+/* ── HUD panel registry ────────────────────────────────────── */
+
+const PANELS = {
+  nettrace:   {title:"NETTRACE",    kind:"lines",  gen:"portScan",    rate:110},
+  sectordump: {title:"SECTOR DUMP", kind:"lines",  gen:"hexDump",     rate:70},
+  neurallink: {title:"NEURAL LINK", kind:"lines",  gen:"cryptoKey",   rate:90},
+  daemons:    {title:"DAEMONS",     kind:"lines",  gen:"procList",    rate:220},
+  packets:    {title:"PACKET LOG",  kind:"lines",  gen:"packetTrace", rate:130},
+  fswalk:     {title:"FILE TABLE",  kind:"lines",  gen:"fsWalk",      rate:150},
+  scope:      {title:"WAVEFORM",    kind:"canvas", paint:paintScope,  grow:0, h:92},
+  radar:      {title:"PROXIMITY",   kind:"canvas", paint:paintRadar,  grow:0, h:128},
+  globe:      {title:"ORBIT TRACK", kind:"canvas", paint:paintGlobe,  grow:0, h:128},
+  subsystems: {title:"SUBSYSTEMS",  kind:"gauges", grow:0},
+  diskio:     {title:"DF0: TRACK",  kind:"disk",   grow:0}
+};
+
+const LAYOUTS = {
+  idle:  [["nettrace","subsystems"], ["packets","scope","subsystems"], ["nettrace","radar"]],
+  think: [["neurallink","scope","subsystems"], ["neurallink","globe"]],
+  read:  [["sectordump","diskio"], ["sectordump","fswalk","subsystems"]],
+  edit:  [["sectordump","subsystems","scope"], ["fswalk","diskio"]],
+  bash:  [["nettrace","daemons"], ["daemons","subsystems","scope"]],
+  net:   [["globe","packets"], ["packets","radar","subsystems"]],
+  task:  [["daemons","subsystems"], ["daemons","radar"]]
+};
+
+const OPNAME = {
+  idle:"STANDBY", think:"NEURAL LINK", read:"SECTOR DUMP 0x4A2F",
+  edit:"PATCHING BINARY", bash:"INJECTING PAYLOAD", net:"UPLINK ACTIVE", task:"SPAWNING DAEMON"
+};
+
+const hudEl = $("hud");
+const mounted = new Map();
+let scenarioKey = "idle";
+
+function buildPanel(key){
+  const spec = PANELS[key];
+  const el = document.createElement("div");
+  el.className = "panel";
+  if (spec.grow === 0) el.dataset.grow = "0";
+  if (spec.h) el.style.flexBasis = spec.h + "px";
+
+  const hd = document.createElement("div");
+  hd.className = "panel-hd";
+  hd.innerHTML = `<span>${spec.title}</span><span class="dot"></span>`;
+  const bd = document.createElement("div");
+  bd.className = "panel-bd";
+  el.append(hd, bd);
+
+  const p = {key, el, body:bd, spec, lines:[]};
+
+  if (spec.kind === "canvas"){
+    bd.classList.add("pad0");
+    const cv = document.createElement("canvas");
+    bd.appendChild(cv);
+    p.canvas = cv; p.ctx = cv.getContext("2d");
+  }
+  if (spec.kind === "gauges"){
+    bd.innerHTML = ["BLITTER","COPPER","UPLINK","ENTROPY"].map((l,i) =>
+      `<div class="gauge"><span class="lbl">${l}</span><span class="bar">
+       <span class="fill" data-g="${i}"></span></span><span class="val" data-v="${i}">0</span></div>`).join("");
+    p.gauge = [30,45,20,12];
+  }
+  if (spec.kind === "disk"){ p.head = 0; p.heat = new Array(80).fill(0); }
+  if (spec.kind === "lines"){
+    for (let i = 0; i < 5; i++) p.lines.push(G[spec.gen]());
+    p.timer = setInterval(() => {
+      p.lines.push(G[spec.gen]());
+      const cap = Math.max(3, Math.floor(bd.clientHeight / 18));
+      while (p.lines.length > cap) p.lines.shift();
+      bd.innerHTML = p.lines.map((l,i) =>
+        i === p.lines.length-1 ? `<span class="hot">${l}</span>`
+        : (i < 2 ? `<span class="fade">${l}</span>` : l)).join("\n");
+    }, spec.rate);
+  }
+  return p;
+}
+
+function sizeCanvas(p){
+  if (!p.canvas) return;
+  const r = p.body.getBoundingClientRect();
+  p.canvas.width = Math.max(40, Math.floor(r.width));
+  p.canvas.height = Math.max(40, Math.floor(r.height));
+}
+
+function setLayout(keys){
+  for (const [k,p] of mounted){
+    if (!keys.includes(k)){
+      clearInterval(p.timer);
+      p.el.classList.add("closing");
+      setTimeout(() => p.el.remove(), 160);
+      mounted.delete(k);
+    }
+  }
+  keys.forEach(k => {
+    if (!mounted.has(k)){
+      const p = buildPanel(k);
+      mounted.set(k, p);
+      hudEl.appendChild(p.el);
+      sizeCanvas(p);
+    }
+  });
+  keys.forEach(k => hudEl.appendChild(mounted.get(k).el));
+}
+
+function sizeAll(){
+  mounted.forEach(sizeCanvas);
+  const r = mapCv.parentElement.getBoundingClientRect();
+  mapCv.width = Math.max(80, Math.floor(r.width));
+  mapCv.height = Math.max(60, Math.floor(r.height));
+}
+addEventListener("resize", sizeAll);
+
+function setScenario(key){
+  scenarioKey = key in LAYOUTS ? key : "idle";
+  load = scenarioKey === "idle" ? .35 : 1;
+  if (!mission) $("opLabel").textContent = OPNAME[scenarioKey];
+  $("titleOp").textContent = scenarioKey === "idle"
+    ? "~/Dev/amiga-terminal" : OPNAME[scenarioKey].toLowerCase();
+  setLayout(pick(LAYOUTS[scenarioKey]));
+  if (scenarioKey !== "idle" && !mission && Math.random() < .25)
+    setTimeout(spawnRequester, rnd(300,1400));
+}
+
+setInterval(() => {
+  if (!mission && Math.random() < .6) setLayout(pick(LAYOUTS[scenarioKey]));
+}, 11000);
+
+/* ── missions ──────────────────────────────────────────────── */
+
+const bar = $("missionbar"), logBody = $("logBody");
+let mission = null, logLines = [];
+
+function log(line, cls){
+  logLines.push(cls ? `<span class="${cls}">${line}</span>` : line);
+  const cap = Math.max(4, Math.floor(logBody.clientHeight / 18));
+  while (logLines.length > cap) logLines.shift();
+  logBody.innerHTML = logLines.join("\n");
+}
+
+const MISSIONS = {
+  kremlin: {
+    title:"BREACH: KREMLIN MAINFRAME", code:"KR-77",
+    map:{sub:"INTRUSION ROUTE", links:[{from:"KYIV",to:"MOSCOW"}], targets:["MOSCOW"]},
+    steps:[
+      {l:"RESOLVING kremlin.ru",        d:1500, log:["dns kremlin.ru -> 95.173.136.70","AS-CENTRALTELECOM  ttl 3600"]},
+      {l:"PROBING 95.173.136.70",       d:1700, log:["22/tcp  open  ssh OpenSSH 4.3","443/tcp open  https","1337/tcp FILTERED"]},
+      {l:"BYPASSING FIREWALL 3/7",      d:2000, log:["fragmenting packets...","ttl shim accepted","layer 3 traversed"]},
+      {l:"CRACKING RSA-4096",           d:2600, log:["pollard rho, 4 threads","p = 0x"+hex(12),"q = 0x"+hex(12)]},
+      {l:"DUMPING /etc/shadow",         d:1700, log:["root:$6$"+hex(16),"1194 accounts exfiltrated"]},
+      {l:"ACCESS GRANTED",              d:2000, log:["session established","covering tracks: wtmp cleared"], ok:1}
+    ]
+  },
+  icbm: {
+    title:"ICBM TRAJECTORY PLOT", code:"DEFCON1", crit:1, countdown:22,
+    map:{sub:"NORAD / DEFCON 1", targets:["MOSCOW","PYONGYANG","TEHRAN","BEIJING"]},
+    steps:[
+      {l:"SILO KEYS TURNED",            d:1800, log:["VANDENBERG  key A  CONFIRMED","CHEYENNE MTN key B CONFIRMED"]},
+      {l:"PLOTTING GREAT CIRCLE",       d:2200, log:["apogee 1287 km","flight time 31m04s"],
+       strike:[{from:"VANDENBERG",to:"PYONGYANG",dur:3.2}]},
+      {l:"WARHEADS ASSIGNED 4/4",       d:2400, log:["W88 x4 armed","CEP 90m"],
+       strike:[{from:"CHEYENNE MTN",to:"MOSCOW",dur:4.0},{from:"VANDENBERG",to:"BEIJING",dur:3.6}]},
+      {l:"TERMINAL GUIDANCE LOCK",      d:2200, log:["star tracker nominal","reentry vehicles separated"],
+       strike:[{from:"DIEGO GARCIA",to:"TEHRAN",dur:2.8}]},
+      {l:"ABORT CODE ACCEPTED",         d:2600, log:["WOPR: a strange game.","the only winning move is not to play."], ok:1}
+    ]
+  },
+  delworld: {
+    title:"rm -rf /world", code:"FATAL", crit:1,
+    map:{sub:"DELETION IN PROGRESS", targets:[]},
+    steps:[
+      {l:"rm -rf /world/OCEANIA",       d:1500, del:"OCEANIA",       log:["unlink 14,203,997 entries"]},
+      {l:"rm -rf /world/AFRICA",        d:1600, del:"AFRICA",        log:["unlink 30,370,000 entries"]},
+      {l:"rm -rf /world/SOUTH-AMERICA", d:1600, del:"SOUTH-AMERICA", log:["unlink 17,840,000 entries"]},
+      {l:"rm -rf /world/EUROPE",        d:1600, del:"EUROPE",        log:["unlink 10,180,000 entries"]},
+      {l:"rm -rf /world/ASIA",          d:1700, del:"ASIA",          log:["unlink 44,579,000 entries"]},
+      {l:"rm -rf /world/NORTH-AMERICA", d:1700, del:"NORTH-AMERICA", log:["unlink 24,709,000 entries"]},
+      {l:"rm -rf /world/ANTARCTICA",    d:1500, del:"ANTARCTICA",    log:["unlink 14,200,000 entries"]},
+      {l:"fsck: RESTORING FROM DF0:",   d:2400, restore:1, log:["backup found: world.adf","148,082,997 entries restored"], ok:1}
+    ]
+  },
+  gibson: {
+    title:"HACKING THE GIBSON", code:"GB-01",
+    map:{sub:"ELLINGSON MINERAL CO", links:[{from:"LONDON",to:"WASHINGTON"}], targets:["WASHINGTON"]},
+    steps:[
+      {l:"DIALING 212-555-0142",        d:1500, log:["carrier detected 2400 baud","CONNECT"]},
+      {l:"GARBAGE FILE INJECTED",       d:1900, log:["rc file appended","supervisor mode acquired"]},
+      {l:"WALKING THE FILE TREE",       d:2100, log:["/gibson/payroll  4.2 GB","/gibson/da_vinci  17 KB"]},
+      {l:"WORM LOCATED",                d:2000, log:["da_vinci.exe  slicing 0.4c/tick","1,271 accounts skimmed"]},
+      {l:"MESS WITH THE BEST",          d:2200, log:["die like the rest.","crash and burn averted"], ok:1}
+    ]
+  },
+  satellite: {
+    title:"SATCOM UPLINK", code:"KH-11",
+    map:{sub:"ORBITAL DOWNLINK", targets:["CANBERRA","BRASILIA","TOKYO"]},
+    steps:[
+      {l:"ACQUIRING KH-11 BIRD",        d:1700, log:["az 214.7  el 38.2","doppler -3.1 kHz"]},
+      {l:"DISH SLEW 214.7 DEG",         d:1800, log:["slew complete","lock: 0.998"]},
+      {l:"DOWNLINK 1.2 GB/s",           d:2200, log:["frames 44,102 rx","ber 1e-9"]},
+      {l:"IMAGERY DECODED",             d:2000, log:["4 frames, 0.31 m/px","targets tagged"], ok:1}
+    ]
+  }
+};
+
+let missionTimers = [];
+function clearMission(){
+  missionTimers.forEach(clearTimeout);
+  missionTimers = [];
+}
+
+function runMission(key){
+  const m = MISSIONS[key];
+  if (!m) return;
+  clearMission();
+  mission = m;
+  logLines = [];
+  deleted.clear();
+  mapState = {targets:m.map.targets||[], links:m.map.links||[], strikes:[], rings:[], sub:m.map.sub};
+
+  bar.dataset.open = "1";
+  $("mapTitle").textContent = m.title;
+  $("cdTitle").textContent = m.code;
+  $("cdCode").textContent = hex(4);
+  $("cdPanel").classList.toggle("crit", !!m.crit);
+  $("mapPanel").classList.toggle("crit", !!m.crit);
+  $("opLabel").classList.toggle("crit", !!m.crit);
+  $("cdBar").classList.toggle("bad", !!m.crit);
+  $("cdBig").classList.toggle("bad", !!m.crit);
+  setTimeout(sizeAll, 240);
+  log(`>>> ${m.title}`, "hot");
+  glitch(220);
+
+  let at = 0;
+  m.steps.forEach((s, i) => {
+    missionTimers.push(setTimeout(() => {
+      $("opLabel").textContent = s.l;
+      $("cdSub").textContent = `STEP ${i+1}/${m.steps.length}`;
+      log(`[${String(i+1).padStart(2,"0")}] ${s.l}`, s.ok ? "hot" : null);
+      (s.log||[]).forEach((line, j) =>
+        missionTimers.push(setTimeout(() => log("     " + line, m.crit && !s.ok ? "bad" : null), 260*(j+1))));
+      if (s.del){ deleted.add(s.del); glitch(300); }
+      if (s.restore){ deleted.clear(); glitch(400); }
+      if (s.strike) s.strike.forEach(st =>
+        mapState.strikes.push({...st, t0: clock, hit:false}));
+      if (s.ok) missionTimers.push(setTimeout(() => spawnRequester(m.crit ? 2 : 0), 700));
+    }, at));
+    at += s.d;
+  });
+
+  missionTimers.push(setTimeout(() => {
+    log("<<< OPERATION COMPLETE", "hot");
+    mission = null;
+    mapState.strikes = [];
+    deleted.clear();
+    $("opLabel").classList.remove("crit");
+    setTimeout(() => { if (!mission){ bar.dataset.open = "0"; setScenario(scenarioKey); } }, 1800);
+  }, at + 600));
+}
+
+document.querySelectorAll("[data-mission]").forEach(b =>
+  b.addEventListener("click", () => runMission(b.dataset.mission)));
+
+/* ── countdown + op strip ──────────────────────────────────── */
+
+let opPct = 0, cdLeft = 0;
+setInterval(() => {
+  if (mission){
+    const total = mission.steps.reduce((a,s) => a+s.d, 0);
+    opPct = Math.min(100, opPct + 100/(total/180));
+  } else {
+    opPct = load > .5 ? Math.min(100, opPct + rnd(1.5,7)) : opPct + .4;
+  }
+  if (opPct >= 100) opPct = 0;
+  $("opFill").style.width = opPct.toFixed(0)+"%";
+  $("opHex").textContent = `${hex(4)} ${hex(4)} ${hex(4)}`;
+}, 180);
+
+setInterval(() => {
+  if (mission && mission.countdown){
+    cdLeft = Math.max(0, cdLeft - 1);
+    $("cdBig").textContent = `T-${String(Math.floor(cdLeft/60)).padStart(2,"0")}:${String(cdLeft%60).padStart(2,"0")}`;
+  } else if (mission){
+    $("cdBig").textContent = `${String(Math.floor(opPct)).padStart(2,"0")}%`;
+  } else {
+    $("cdBig").textContent = new Date().toTimeString().slice(3,8);
+    $("cdSub").textContent = "STANDBY";
+  }
+  $("cdBar").firstElementChild.style.width = opPct.toFixed(0)+"%";
+  $("cdCode").textContent = hex(4);
+}, 1000);
+
+/* ── shared animation loop ─────────────────────────────────── */
+
+let t0 = performance.now(), clock = 0;
+function frame(now){
+  clock = (now - t0)/1000;
+  mounted.forEach(p => {
+    if (p.spec.kind === "canvas" && p.canvas.width)
+      p.spec.paint(p.ctx, p.canvas.width, p.canvas.height, clock);
+  });
+  if (bar.dataset.open === "1") paintMap(clock);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+setInterval(() => {
+  mounted.forEach(p => {
+    if (p.spec.kind === "gauges"){
+      p.gauge.forEach((v,i) => {
+        const target = load > .5 ? rnd(45,98) : rnd(8,42);
+        p.gauge[i] = v + (target - v)*.22;
+        p.body.querySelector(`[data-g="${i}"]`).style.width = p.gauge[i].toFixed(0)+"%";
+        p.body.querySelector(`[data-v="${i}"]`).textContent = Math.round(p.gauge[i]);
+      });
+    }
+    if (p.spec.kind === "disk"){
+      p.head = (p.head + Math.floor(rnd(1,6))) % 80;
+      p.heat[p.head] = 1;
+      p.heat = p.heat.map(v => v*.93);
+      const ch = v => v > .75 ? "█" : v > .45 ? "▓" : v > .2 ? "▒" : v > .06 ? "░" : "·";
+      let out = "";
+      for (let r = 0; r < 8; r++) out += p.heat.slice(r*10,(r+1)*10).map(ch).join(" ") + "\n";
+      p.body.innerHTML = out + `<span class="hot">HEAD ${String(p.head).padStart(2,"0")}  ${hex(4)}</span>`;
+    }
+  });
+}, 130);
+
+/* ── floating requesters ───────────────────────────────────── */
+
+const REQUESTERS = [
+  {t:"System Request", l:["Please insert volume","Workbench1.3: in any drive"], b:["Retry","Cancel"]},
+  {t:"DF0:",           l:["Disk is unreadable","Track 42 checksum error"],      b:["Retry","Cancel"]},
+  {t:"exec.library",   l:["Not enough memory to","complete operation"],         b:["Continue"]},
+  {t:"UPLINK",         l:["Remote key exchange","%HEX%"],                       b:["Accept","Deny"]},
+  {t:"trackdisk.device", l:["Write protected volume","SYS: is read only"],      b:["Retry","Cancel"]}
+];
+const ALERTS = [
+  {t:"INTRUSION",   l:["Unauthorized trace detected","Source: 10.0.4.77"],       b:["Trace","Ignore"], alert:1},
+  {t:"NORAD",       l:["Launch detected. This is","not a drill."],               b:["Acknowledge"],    alert:1},
+  {t:"FATAL",       l:["/world is being deleted","This cannot be undone"],       b:["Undo","Proceed"], alert:1},
+  {t:"COUNTERMEASURE", l:["Trace originated at","your own address"],             b:["Abort"],          alert:1}
+];
+
+const desktop = $("desktop");
+let openReqs = 0;
+
+function spawnRequester(forceAlert){
+  if (openReqs >= 2) return;
+  openReqs++;
+  const r = forceAlert === 2 || (forceAlert !== 0 && Math.random() < .3) ? pick(ALERTS) : pick(REQUESTERS);
+  const el = document.createElement("div");
+  el.className = "requester" + (r.alert ? " alert" : "");
+  el.innerHTML =
+    `<div class="req-hd"><span>${r.t}</span><span>${hex(4)}</span></div>` +
+    `<div class="req-bd">${r.l.map(x => x.replace("%HEX%", hex(8)+" "+hex(8))).join("<br>")}</div>` +
+    `<div class="req-ft">${r.b.map(b => `<button class="btn">${b.toUpperCase()}</button>`).join("")}</div>`;
+  const box = desktop.getBoundingClientRect();
+  el.style.left = rnd(30, Math.max(40, box.width - 300)).toFixed(0)+"px";
+  el.style.top  = rnd(40, Math.max(60, box.height - 210)).toFixed(0)+"px";
+  desktop.appendChild(el);
+  const close = () => {
+    if (!el.isConnected) return;
+    el.classList.add("closing");
+    setTimeout(() => el.remove(), 150);
+    openReqs--;
+  };
+  el.querySelectorAll("button").forEach(b => b.addEventListener("click", close));
+  setTimeout(close, rnd(3800, 7000));
+}
+
+setInterval(() => { if (Math.random() < .18 + cfg.glitchRate/100*.5) spawnRequester(); }, 9000);
+setInterval(() => { if (Math.random() < cfg.glitchRate/100*.12) guru(); }, 20000);
+
+/* ── boot sequence ─────────────────────────────────────────── */
+
+const BOOT = [
+  "Kickstart 1.3 ROM ............ OK",
+  "CHIP RAM   512K .............. OK",
+  "FAST RAM  8192K .............. OK",
+  "DF0: reading .................",
+  "",
+  "> ESTABLISHING UPLINK",
+  "> ACCESS GRANTED",
+  ""
+];
+const bootEl = $("boot");
+let bootTimer = null;
+
+function runBoot(then){
+  bootEl.hidden = false;
+  bootEl.textContent = "";
+  let li = 0, ci = 0;
+  clearInterval(bootTimer);
+  const finish = () => {
+    clearInterval(bootTimer);
+    bootEl.hidden = true;
+    glitch(140);
+    then && then();
+  };
+  bootTimer = setInterval(() => {
+    if (li >= BOOT.length) return finish();
+    const line = BOOT[li];
+    if (ci <= line.length){
+      bootEl.textContent = BOOT.slice(0,li).join("\n") + (li?"\n":"") + line.slice(0,ci);
+      ci++;
+    } else { li++; ci = 0; }
+  }, 11);
+  bootEl.onclick = finish;
+}
+
+/* ── fake Claude Code session ──────────────────────────────── */
+
+const SESSION = [
+  {t:"1.SYS:> claude",                                       c:"user", d:400, s:"idle"},
+  {t:"",                                                     d:120},
+  {t:" ▐▛███▜▌   Claude Code v2.1.4",                        c:"logo", d:40},
+  {t:"▝▜█████▛▘  ~/Dev/amiga-terminal",                      c:"logo", d:40},
+  {t:"  ▘▘ ▝▝",                                              c:"logo", d:300},
+  {t:"",                                                     d:200},
+  {t:"> add a glitch burst scheduler to the effects engine", c:"user", d:600},
+  {t:"",                                                     d:150},
+  {t:"✻ Thinking…",                                          c:"dim",  d:1800, s:"think"},
+  {t:"",                                                     d:100},
+  {t:"⏺ Read(effects.js)",                                   c:"tool", d:1100, s:"read"},
+  {t:"  ⎿  Read 214 lines",                                  c:"dim",  d:600},
+  {t:"",                                                     d:120},
+  {t:"⏺ Grep(pattern: \"scheduleGlitch\")",                  c:"tool", d:1200, s:"read", m:"gibson"},
+  {t:"  ⎿  Found 3 files",                                   c:"dim",  d:9000},
+  {t:"",                                                     d:120},
+  {t:"⏺ Edit(effects.js)",                                   c:"tool", d:1300, s:"edit", m:"delworld"},
+  {t:"  ⎿  Updated with 42 additions, 6 removals",           c:"dim",  d:13000},
+  {t:"",                                                     d:120},
+  {t:"⏺ Bash(node test.js)",                                 c:"tool", d:1400, s:"bash", m:"kremlin"},
+  {t:"  ⎿  12 passed, 0 failed",                             c:"ok",   d:12000},
+  {t:"",                                                     d:150},
+  {t:"⏺ WebFetch(norad.mil/status)",                         c:"tool", d:1300, s:"net", m:"icbm"},
+  {t:"  ⎿  Received 41.2 KB",                                c:"dim",  d:12000},
+  {t:"",                                                     d:150},
+  {t:"⏺ Bursts now fire on a Poisson timer, idle cost zero.",c:"ok",   d:2000, s:"idle"},
+  {t:"",                                                     d:400},
+  {t:"> ",                                                   c:"user", d:2600}
+];
+
+const CHAR_MS = 7;
+let si = 0, buf = "";
+
+function renderTerm(partial){
+  term.innerHTML = buf + partial + '<span class="cursor"></span>';
+  term.scrollTop = term.scrollHeight;
+}
+
+function typeLine(){
+  if (si >= SESSION.length){
+    si = 0; buf = "";
+    setTimeout(typeLine, 900);
+    return;
+  }
+  const item = SESSION[si];
+  if (item.s) setScenario(item.s);
+  if (item.m) runMission(item.m);
+
+  if (!item.t){
+    buf += "\n"; renderTerm(""); si++;
+    setTimeout(typeLine, item.d || 60);
+    return;
+  }
+  const cls = item.c ? ` class="${item.c}"` : "";
+  let ci = 0;
+  const tick = setInterval(() => {
+    ci++;
+    renderTerm(`<span${cls}>${item.t.slice(0,ci)}</span>`);
+    if (ci >= item.t.length){
+      clearInterval(tick);
+      buf += `<span${cls}>${item.t}</span>\n`;
+      si++;
+      setTimeout(typeLine, item.d || 120);
+    }
+  }, CHAR_MS);
+}
+
+/* ── controls ──────────────────────────────────────────────── */
+
+$("bGlitch").addEventListener("click", () => glitch(420));
+$("bGuru").addEventListener("click", guru);
+$("bReq").addEventListener("click", () => spawnRequester());
+$("bBoot").addEventListener("click", () => runBoot());
+$("bHud").addEventListener("click", e => {
+  const on = hudEl.hidden;
+  hudEl.hidden = !on;
+  e.currentTarget.setAttribute("aria-pressed", String(on));
+  if (on) sizeAll();
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "F9"){ e.preventDefault(); setPreset(order[(presetIdx+1)%3]); }
+  if (e.key === "F10"){ e.preventDefault(); $("bHud").click(); }
+});
+setInterval(() => { $("clock").textContent = new Date().toTimeString().slice(0,8); }, 1000);
+
+/* ── go ────────────────────────────────────────────────────── */
+
+setScenario("idle");
+sizeAll();
+runBoot(typeLine);
+</script>

@@ -5,9 +5,15 @@ Status: Approved (design), pending implementation plan
 
 ## 1. Purpose
 
-A terminal emulator for daily use with the Claude Code CLI, styled as an Amiga
-Workbench 1.3 window wrapped around a green-phosphor CRT screen, with a
-"hacking theater" HUD that reacts to what Claude Code is actually doing.
+A **general-purpose terminal emulator** — it runs `ls`, `vim`, `htop`, `git`,
+`ssh` and anything else, exactly like any other terminal. It is styled as an
+Amiga Workbench 1.3 window wrapped around a green-phosphor CRT screen, with a
+"hacking theater" HUD.
+
+Claude Code is the *primary use case*, not a dependency. The HUD gains an extra
+layer of reactivity when it detects Claude Code's tool calls in the output
+stream, but the terminal itself has no knowledge of or dependency on Claude —
+launch it, get your shell, run whatever you want.
 
 Two hard requirements pull against each other and both must hold:
 
@@ -22,9 +28,9 @@ let the user crank it.
 
 ## 2. Non-goals
 
-- Not a general-purpose terminal replacement. One window, one PTY, no tabs,
-  no splits, no session management. If the user wants tabs, that is a
-  separate project.
+- No tabs, no splits, no session management. One window, one PTY. It is a
+  full terminal for one shell session; multiplexing is `tmux`'s job, and if
+  the user wants tabs later that is a separate project.
 - No configuration UI. `config.json` is edited by hand.
 - No shell integration, no prompt rewriting, no command history features.
 - Not cross-platform-verified. Target is this machine: Linux, Wayland, KDE
@@ -59,10 +65,18 @@ window.pty = {
 Nothing else crosses the bridge. The renderer never touches `fs`, `child_process`
 or `require`.
 
-`main.js` spawns the child process. Default command is `claude`; overridable
-in `config.json` via `shell` and `shellArgs`. If the configured command is not
-found on `PATH`, fall back to `$SHELL` and surface the failure as a Guru
-Meditation rather than a silent blank window.
+`main.js` spawns the child process. **The default is the user's login shell**
+(`$SHELL`, falling back to `/bin/bash`) — this is a terminal, so it opens a
+shell like every other terminal does. `config.json` can override via `shell`
+and `shellArgs` for anyone who wants it to launch straight into a specific
+program. If a configured command is not found on `PATH`, fall back to `$SHELL`
+and surface the failure as a Guru Meditation rather than a silent blank window.
+
+Because it is a real terminal, the following are requirements, not nice-to-haves:
+`TERM=xterm-256color`, correct `SIGWINCH` on resize, working `Ctrl-C`/`Ctrl-D`/
+`Ctrl-Z`, alternate-screen apps (`vim`, `htop`, `less`), mouse reporting,
+256-colour and truecolour output, and copy/paste. xterm.js handles the
+emulation; the app must not get in its way.
 
 ## 5. File layout
 
@@ -189,6 +203,14 @@ It matches Claude Code's tool-call markers and maps them to scenarios:
 | `Bash(` | `INJECTING PAYLOAD` — port scan |
 | `WebFetch(`, `WebSearch(` | `UPLINK ACTIVE` — packet trace |
 | `Task(` | `SPAWNING DAEMON` — process list |
+
+Beyond per-tool scenarios, the HUD runs full **missions** — multi-step scripted
+operations with a world map, a mission log and a countdown: `kremlin` (mainframe
+breach with an intrusion route drawn on the map), `icbm` (NORAD trajectory
+plotting with animated warhead arcs and impact rings, which always ends in an
+abort), `delworld` (`rm -rf /world`, continents vanishing from the map region by
+region, then restored from a floppy backup), `gibson` and `satellite`. A tool
+call may kick off a mission; missions also fire on the ambient timer.
 | thinking spinner / `esc to interrupt` | `NEURAL LINK` — crypto key stream |
 
 **Failure mode is explicit**: Claude Code's output format is not a stable
@@ -239,7 +261,7 @@ bitmap glyph edges sharp.
 
 ```json
 {
-  "shell": "claude",
+  "shell": null,
   "shellArgs": [],
   "bootSequence": true,
   "effects": {
