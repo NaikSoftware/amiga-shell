@@ -71,10 +71,13 @@ function normalizeConfig(raw) {
     typingEffects: typeof r.typingEffects === "boolean" ? r.typingEffects : true,
     // real /proc/net telemetry in PACKET LOG; false keeps the fake generator
     realPackets: typeof r.realPackets === "boolean" ? r.realPackets : true,
-    // real microphone in the WAVEFORM / SPECTRUM panels. Strict === true so a
-    // missing key, "true" or 1 all read as OFF: a terminal must never open the
-    // mic by accident, and off is the only safe default.
-    micEqualizer: r.micEqualizer === true,
+    /* Real microphone in the WAVEFORM / SPECTRUM panels, ON by default at the
+       user's request. This does open the mic on launch: Chromium prompts once,
+       and denying it leaves both panels on their simulated maths forever with
+       no retry. The stream is released on F10 and ~5s after the panels rotate
+       away, so it is not held open in the background. Set false to keep it
+       shut entirely. */
+    micEqualizer: r.micEqualizer !== false,
     // real CPU/mem/disk/GPU/battery telemetry in the HUD gauges; false leaves
     // the panels with nothing rather than with invented numbers
     sysTelemetry: typeof r.sysTelemetry === "boolean" ? r.sysTelemetry : true,
@@ -269,7 +272,9 @@ function spawnPty() {
       .split("\n").map((s) => s.trim().replace(/[^\x20-\x7e]/g, ""))
       .filter(Boolean).slice(0, 6));
 
-  startFeed(config.newsMap, config.newsMapIntervalMinutes, 45, 45000,
+  // 8s, not 45s: the map is a visible panel from the first frame and sitting
+  // empty for most of a minute reads as broken rather than as loading
+  startFeed(config.newsMap, config.newsMapIntervalMinutes, 45, 8000,
     NEWSMAP_PROMPT, "newsmap:data", parseNewsMarkers);
 
   /* Real network telemetry for the PACKET LOG panel. /proc/net is

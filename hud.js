@@ -692,13 +692,38 @@ export function initHud({ hudEl, barEl, config, effects }){
       eachRegion(rg => rg.mounted.forEach(sizeCanvas));
     });
   }
-  const sizeObserver = new ResizeObserver(sizeAll);
+  /* Observing only the REGION is not enough. A region's own box does not
+     change when panels swap inside it, so a panel whose canvas was measured
+     before flex laid it out (`sizeCanvas` bails under 8px) never got a second
+     chance — it stayed 0x0, `frame()` skipped it on the width guard, and it
+     sat there as a black rectangle until the window was resized. That is the
+     "some panels go black after F8" bug. Observing each panel body means the
+     panel itself reports the moment it has a real box. */
+  const sizeObserver = new ResizeObserver((entries) => {
+    for (const e of entries){
+      const p = bodyOwner.get(e.target);
+      if (p) sizeCanvas(p);
+    }
+    sizeAll();
+  });
+  const bodyOwner = new WeakMap();
+
+  function watchBody(p){
+    if (!p.canvas) return;
+    bodyOwner.set(p.body, p);
+    try { sizeObserver.observe(p.body); } catch (e) {}
+  }
+  function unwatchBody(p){
+    if (!p.canvas) return;
+    try { sizeObserver.unobserve(p.body); } catch (e) {}
+  }
 
   /* Animated removal. Also the only place a panel timer is cleared, so a
      panel can never leave the DOM with its interval still running. */
   function unmount(rg, key){
     const p = rg.mounted.get(key);
     if (!p) return;
+    unwatchBody(p);
     clearInterval(p.timer);
     rg.mounted.delete(key);
     p.el.classList.add("closing");
@@ -727,6 +752,7 @@ export function initHud({ hudEl, barEl, config, effects }){
         const p = buildPanel(k);
         rg.mounted.set(k, p);
         rg.el.appendChild(p.el);
+        watchBody(p);          // the panel itself reports when it has a box
       }
     });
     keys.forEach(k => rg.el.appendChild(rg.mounted.get(k).el));
@@ -749,10 +775,58 @@ export function initHud({ hudEl, barEl, config, effects }){
      decline while the mission runner owned the bar, which is why F8 shuffled
      the column and left the bar alone — the reported bug. Both regions are
      now plain panel regions and both always answer. */
+  /* Layout choice is a uniform sample over the panels themselves, not a pick
+     from a curated list of combinations.
+
+     The curated tables had a structural flaw: a panel's chance of appearing
+     depended on how many hand-written layouts happened to mention it, and a
+     panel absent from the dominant scenario's list could never appear at all.
+     `spectrum` was in no `idle` layout, and a plain shell sits in `idle`
+     almost permanently — so it was unreachable in practice, while `scope` sat
+     at roughly 1 chance in 12. Sampling the panel pool directly gives every
+     panel in a region the same odds, every time.
+
+     Scenario still matters, but as a nudge rather than a gate: the panels a
+     scenario's old layouts favoured are simply added to the pool a second
+     time, so they come up more often without ever locking anything out. */
+  function poolFor(rg){
+    const pool = [];
+    for (const key of Object.keys(PANELS)){
+      if (BROKEN.has(key)) continue;
+      if (regionOf(key) !== rg.name) continue;
+      if (PINNED.has(key)) continue;          // already guaranteed a slot
+      pool.push(key);
+    }
+    // scenario bias: one extra ticket for panels the scenario used to prefer
+    for (const combo of (rg.layouts[scenarioKey] || [])){
+      for (const key of combo){
+        if (PANELS[key] && regionOf(key) === rg.name && !PINNED.has(key)
+            && !BROKEN.has(key)) pool.push(key);
+      }
+    }
+    return pool;
+  }
+
+  function sampleLayout(rg){
+    const pool = poolFor(rg);
+    const want = rg.name === "bottom" ? 3 : 2 + (Math.random() < .5 ? 1 : 0);
+    const slots = Math.max(1, want - pinsIn(rg.name));
+    const out = [];
+    // sample without replacement so a layout never shows the same panel twice
+    const bag = pool.slice();
+    while (out.length < slots && bag.length){
+      const i = Math.floor(Math.random() * bag.length);
+      const key = bag[i];
+      bag.splice(i, 1);
+      if (!out.includes(key)) out.push(key);
+    }
+    return out;
+  }
+
   function relayout(rg, now, force){
     if (!force && now - rg.lastLayout < LAYOUT_HOLD_MS && rg.mounted.size) return false;
     rg.lastLayout = now;
-    setLayout(rg, pick(rg.layouts[scenarioKey] || rg.layouts.idle));
+    setLayout(rg, sampleLayout(rg));
     return true;
   }
 

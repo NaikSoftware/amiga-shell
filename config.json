@@ -14,5 +14,6 @@
   "renderer": "dom",
   "cursorStyle": "block",
   "cursorBlink": true,
-  "typingEffects": true
+  "typingEffects": true,
+  "micEqualizer": true
 }

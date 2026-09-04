@@ -55,6 +55,39 @@ for (const r in LAND) for (const [a,b] of LAND[r])
    mount and unmount underneath it, and neither needs a handle on the other.
    ponytail: single-map assumption; key it per panel if two ever mount. */
 let newsMarkers = [];
+
+/* Baseline markers so the map is never an empty grid. These are the same
+   cities CHRONO clocks, plotted at their real coordinates with their real
+   local time — true information, available with no network and no fetch, and
+   visibly distinct from a news story. Real headlines are drawn on top when
+   they arrive; these stay underneath as the map's resting state. */
+const BASE_CITIES = [
+  ["KYIV",       50.45,  30.52, "Europe/Kyiv"],
+  ["MOSCOW",     55.75,  37.62, "Europe/Moscow"],
+  ["LONDON",     51.51,  -0.13, "Europe/London"],
+  ["WASHINGTON", 38.90, -77.04, "America/New_York"],
+  ["TOKYO",      35.68, 139.69, "Asia/Tokyo"],
+  ["DELHI",      28.61,  77.21, "Asia/Kolkata"],
+  ["SAO PAULO", -23.55, -46.63, "America/Sao_Paulo"],
+  ["SYDNEY",    -33.87, 151.21, "Australia/Sydney"]
+];
+
+// one formatter per city, built once; a zone this platform lacks is dropped
+const CITY_FMT = BASE_CITIES.map(([name, lat, lon, tz]) => {
+  try {
+    return { name, lat, lon,
+      fmt: new Intl.DateTimeFormat("en-GB",
+        { timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false }) };
+  } catch (e) { return null; }
+}).filter(Boolean);
+
+/* Ambient traffic between the baseline cities. Not a mission and not
+   pretending to be data — it is the map behaving like a live situation
+   display instead of a static image. Arcs are amber like the news traces;
+   the news ones are brighter and carry a label, so the two never read as
+   the same thing. */
+const AMBIENT_ARC_EVERY = 5.5;
+let ambientArcs = [], ambientLast = -1;
 const NEWS_DWELL = 20;
 /* Trace arcs. When the "now showing" story rotates, a trajectory flies from
    the previous story's location to the new one. Purely visual; holds at most
@@ -210,6 +243,68 @@ function mapGeom(w,h){
    so this drops into the panel registry like any other instrument. Draws the
    ocean dot grid and the land cells, then whatever NEWS WATCH has. With no
    headlines yet it is simply a world map, which reads fine on its own. */
+
+/* Baseline layer: every city as a small amber tick with its local time, plus
+   a slow arc hopping between them so the display is always alive. Drawn
+   under the news layer and deliberately dimmer than it. */
+function paintBaseCities(ctx, g, t){
+  const step = Math.floor(Math.max(0, t) / AMBIENT_ARC_EVERY);
+  if (step !== ambientLast && CITY_FMT.length > 1){
+    ambientLast = step;
+    const a = CITY_FMT[(step * 3) % CITY_FMT.length];
+    const b = CITY_FMT[(step * 5 + 2) % CITY_FMT.length];
+    if (a !== b) ambientArcs.push({ a, b, t0: t });
+    if (ambientArcs.length > 3) ambientArcs.shift();
+  }
+
+  const xy = (c) => [ g.ox + ((c.lon + 180) / 5.625) * g.cs,
+                      g.oy + ((90 - c.lat) / 5.625) * g.cs ];
+
+  // arcs first, so the ticks and labels sit on top of them
+  ctx.lineWidth = 1;
+  for (let i = ambientArcs.length - 1; i >= 0; i--){
+    const s = ambientArcs[i];
+    const age = t - s.t0;
+    if (age > AMBIENT_ARC_EVERY * 1.6){ ambientArcs.splice(i, 1); continue; }
+    const p = Math.min(1, age / 2.2);
+    const a = xy(s.a), b = xy(s.b);
+    const d = Math.hypot(b[0]-a[0], b[1]-a[1]);
+    const mx = (a[0]+b[0])/2, my = (a[1]+b[1])/2 - d*.4;
+    const qx = (u) => (1-u)*(1-u)*a[0] + 2*(1-u)*u*mx + u*u*b[0];
+    const qy = (u) => (1-u)*(1-u)*a[1] + 2*(1-u)*u*my + u*u*b[1];
+    ctx.globalAlpha = age > AMBIENT_ARC_EVERY ? Math.max(0, 1 - (age - AMBIENT_ARC_EVERY) / 3.5) * .5 : .5;
+    ctx.strokeStyle = "#8A6212";
+    ctx.beginPath(); ctx.moveTo(a[0], a[1]);
+    for (let u = 0; u <= p; u += .03) ctx.lineTo(qx(u), qy(u));
+    ctx.stroke();
+    if (p < 1){
+      ctx.globalAlpha = .9;
+      ctx.fillStyle = "#FFE9B0";
+      ctx.fillRect(qx(p)-1.5, qy(p)-1.5, 3, 3);
+    }
+  }
+  ctx.globalAlpha = 1;
+
+  const now = new Date();
+  ctx.font = "9px monospace";
+  for (const c of CITY_FMT){
+    const [x, y] = xy(c);
+    ctx.fillStyle = "#FFB627";
+    ctx.fillRect(x - 1.5, y - 1.5, 3, 3);
+    ctx.globalAlpha = .75;
+    ctx.fillStyle = "#8A6212";
+    let time = "";
+    try { time = c.fmt.format(now); } catch (e) { time = ""; }
+    if (g.cs > 4){
+      const label = time ? `${c.name} ${time}` : c.name;
+      const tw = label.length * 5.4;
+      const lx = x + 5 + tw > ctx.canvas.width ? x - 5 - tw : x + 5;
+      ctx.fillText(label, Math.max(2, lx), y + 3);
+    }
+    ctx.globalAlpha = 1;
+  }
+}
+
 export function paintWorldMap(ctx, w, h, t){
   if (!w || !h) return;
   const g = mapGeom(w, h);
@@ -228,5 +323,6 @@ export function paintWorldMap(ctx, w, h, t){
     }
   }
 
+  paintBaseCities(ctx, mapGeom(w, h), t);
   paintNews(ctx, g, t, w, h);
 }
