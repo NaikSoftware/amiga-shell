@@ -7,6 +7,9 @@
 
 "use strict";
 
+const { execFile } = require("child_process");
+const os = require("os");
+
 const fs = require("fs");
 const path = require("path");
 
@@ -62,6 +65,14 @@ function normalizeConfig(raw) {
     cursorStyle: ["block", "underline", "bar"].includes(r.cursorStyle) ? r.cursorStyle : "block",
     cursorBlink: typeof r.cursorBlink === "boolean" ? r.cursorBlink : true,
     fontFamily: typeof r.fontFamily === "string" && r.fontFamily.trim() ? r.fontFamily.trim() : null,
+    // live headline panel: costs tokens per refresh, so it is easy to disable
+    news: typeof r.news === "boolean" ? r.news : true,
+    newsIntervalMinutes: Number.isFinite(Number(r.newsIntervalMinutes))
+      ? Math.max(10, Math.min(720, Number(r.newsIntervalMinutes))) : 30,
+    // live news markers on the world map — same deal, its own slower timer
+    newsMap: typeof r.newsMap === "boolean" ? r.newsMap : true,
+    newsMapIntervalMinutes: Number.isFinite(Number(r.newsMapIntervalMinutes))
+      ? Math.max(10, Math.min(720, Number(r.newsMapIntervalMinutes))) : 45,
     effects
   };
 }
@@ -77,6 +88,57 @@ function loadConfig(dir) {
     }
     return normalizeConfig({});
   }
+}
+
+// ------------------------------------------------------------ newsmap ---
+// The map's live markers. `claude -p` is asked for LAT|LON|PLACE|SUMMARY
+// lines and mostly obliges, but a chatty preamble or a stray markdown bullet
+// is the normal failure, not the exception — so every line is parsed on its
+// own and anything that does not fit is dropped. This never throws: a garbage
+// response yields [] and the renderer simply keeps its last good markers.
+
+const NEWSMAP_MAX = 7;
+
+// finite number or null — "", "35N", undefined and NaN all fall through
+function finiteOr(v, lo, hi) {
+  const s = String(v).trim();
+  if (!s) return null;
+  const n = Number(s);
+  return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : null;
+}
+
+const asciiOnly = (v, max) => String(v).replace(/[^\x20-\x7e]/g, "").trim().slice(0, max);
+
+// same, but a summary that has to be cut loses its last partial word rather
+// than ending in "nuclear materia"
+function asciiWords(v, max) {
+  const s = String(v).replace(/[^\x20-\x7e]/g, "").trim();
+  if (s.length <= max) return s;
+  const cut = s.slice(0, max), sp = cut.lastIndexOf(" ");
+  return (sp > max / 2 ? cut.slice(0, sp) : cut).trim();
+}
+
+function parseNewsMarkers(text) {
+  const out = [];
+  if (typeof text !== "string" || !text) return out;
+  // split's limit bounds the work on a runaway response; the per-line length
+  // check bounds the other shape of runaway — one enormous line.
+  for (const raw of text.split("\n", 400)) {
+    if (out.length >= NEWSMAP_MAX) break;
+    if (raw.length > 300) continue;
+    // strip at most one markdown bullet or list number. The trailing \s+ is
+    // required: without it a leading "-51.5" latitude would lose its sign.
+    const parts = raw.trim().replace(/^(?:[-*\u2022>]|\d+[.)])\s+/, "").split("|");
+    if (parts.length < 4) continue;
+    const lat = finiteOr(parts[0], -90, 90);
+    const lon = finiteOr(parts[1], -180, 180);
+    if (lat === null || lon === null) continue;
+    const place = asciiOnly(parts[2], 12).toUpperCase();
+    const summary = asciiWords(parts.slice(3).join(" "), 44);
+    if (!place || !summary) continue;
+    out.push({ lat, lon, place, summary });
+  }
+  return out;
 }
 
 // ----------------------------------------------------------------- shell ---
@@ -108,7 +170,7 @@ function resolveShell(cfg) {
   };
 }
 
-module.exports = { DEFAULTS, normalizeConfig, loadConfig, resolveShell, clampPct };
+module.exports = { DEFAULTS, normalizeConfig, loadConfig, resolveShell, clampPct, parseNewsMarkers };
 
 // ------------------------------------------------------------- electron ----
 // Everything below only runs under `electron .`; importing this file from node
@@ -141,6 +203,61 @@ function spawnPty() {
   });
 
   // Straight through. No transform, no buffering, no line handling.
+  /* Live headline feed. Runs `claude -p` on a long timer and pushes plain
+     lines to the HUD. Costs tokens on every run, so the interval is long and
+     config.news:false turns it off entirely. Failure is silent by design —
+     no auth, no network, no claude on PATH all just mean the panel keeps
+     showing its last content, and the terminal is never affected. */
+  const NEWS_PROMPT =
+    "Search the web for the most significant Ukraine-related world news from " +
+    "the last 24 hours. Reply with ONLY 5 lines, nothing else. Each line at " +
+    "most 34 characters, plain ASCII, no markdown, no bullets, no preamble. " +
+    "Format each line as: HH:MM SOURCE headline fragment";
+
+  /* Same deal for the world map: geolocated stories, so the map has
+     something true on it when no scripted operation is running. Separate
+     prompt, separate (longer) timer, same silent-degrade contract. */
+  const NEWSMAP_PROMPT =
+    "Search the web for the top world news stories right now. Reply with " +
+    "ONLY 6 lines and nothing else: no preamble, no markdown, no bullets, " +
+    "no numbering, no blank lines. Each line must be exactly " +
+    "LAT|LON|PLACE|SUMMARY where LAT and LON are decimal degrees of the " +
+    "place the story is about (LAT between -90 and 90, LON between -180 " +
+    "and 180), PLACE is at most 12 characters of plain ASCII, and SUMMARY " +
+    "is at most 8 words of plain ASCII. Example of one line: " +
+    "50.4|30.5|KYIV|Ceasefire talks stall as strikes continue";
+
+  // one shape for both feeds: run claude, hand stdout to `shape`, push
+  // whatever comes back unless it is empty. An error is just "no update".
+  function fetchFeed(prompt, channel, shape) {
+    execFile("claude", ["-p", prompt],
+      { timeout: 180000, maxBuffer: 1 << 20, cwd: os.homedir() },
+      (err, stdout) => {
+        if (err || !stdout) return;                       // silent degrade
+        let payload;
+        try { payload = shape(String(stdout)); } catch (e) { return; }
+        if (payload && payload.length && win && !win.isDestroyed())
+          win.webContents.send(channel, payload);
+      });
+  }
+
+  // first run is delayed past the boot sequence, then it is the long timer
+  function startFeed(enabled, minutes, def, delay, prompt, channel, shape) {
+    if (enabled === false) return;
+    setTimeout(() => fetchFeed(prompt, channel, shape), delay);
+    const mins = Math.max(10, Math.min(720, Number(minutes) || def));
+    const timer = setInterval(() => fetchFeed(prompt, channel, shape), mins * 60000);
+    timer.unref?.();
+  }
+
+  startFeed(config.news, config.newsIntervalMinutes, 30, 20000,
+    NEWS_PROMPT, "news:data", (out) => out
+      .split("\n").map((s) => s.trim().replace(/[^\x20-\x7e]/g, ""))
+      .filter(Boolean).slice(0, 6));
+
+  startFeed(config.newsMap, config.newsMapIntervalMinutes, 45, 45000,
+    NEWSMAP_PROMPT, "newsmap:data", parseNewsMarkers);
+
   term.onData((data) => {
     // Debug hatch: AMIGATERM_DUMP=/path/to/file appends the raw PTY stream.
     // Off unless the env var is set; the terminal path is untouched either way.

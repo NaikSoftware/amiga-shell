@@ -13,39 +13,115 @@
    state keeps it in a module-level typed array, the way BLIPS does in
    hud.js. Palette is the HUD's: #FFB627 amber, #FFE9B0 highlight. */
 
-/* ── Boing Ball — the 1984 Amiga demo, checkerboard and all ─────────── */
+/* ── Boing Ball — the 1984 Amiga demo, restyled into the HUD's amber ───
+
+   Tessellation is 12 longitudes x 6 latitudes. At the real panel size
+   (290x130) the ball is 78px across, so the visible hemisphere is six 30°
+   columns: ~19px at the centre, ~14px next, ~5px at the limb, and the
+   latitude bands measure the same. 16x8 — what the demo itself used, on a
+   ball twice this size — puts the limb column at 2px and the checker starts
+   to shimmer; 20x20 is a grey haze.
+
+   Vertex and face-normal tables are built once. The paint loop costs two
+   trig calls a frame (the spin) and multiplies after that: no allocation, no
+   clip, no gradient, no shadowBlur. */
+
+const TAU = Math.PI*2;
+const B_LAT = 6, B_LON = 12, B_ROW = B_LON + 1;
+// axis tilt: pole leaning right and a little toward the viewer, as in the demo
+const B_CP = Math.cos(.26), B_SP = Math.sin(.26);
+const B_CR = Math.cos(-.28), B_SR = Math.sin(-.28);
+
+const B_SLAT = new Float32Array(B_LAT+1), B_CLAT = new Float32Array(B_LAT+1);
+const B_SLON = new Float32Array(B_ROW),   B_CLON = new Float32Array(B_ROW);
+const B_MS = new Float32Array(B_LON),     B_MC = new Float32Array(B_LON);
+const B_ZC = new Float32Array(B_LAT),     B_ZS = new Float32Array(B_LAT);
+const B_U  = new Float32Array(B_ROW),     B_V  = new Float32Array(B_ROW);
+const B_MV = new Float32Array(B_LON);
+const B_VX = new Float32Array((B_LAT+1)*B_ROW);
+const B_VY = new Float32Array((B_LAT+1)*B_ROW);
+{
+  for (let i = 0; i <= B_LAT; i++){
+    const a = Math.PI*i/B_LAT; B_SLAT[i] = Math.sin(a); B_CLAT[i] = Math.cos(a);
+  }
+  for (let j = 0; j < B_ROW; j++){
+    const a = TAU*j/B_LON; B_SLON[j] = Math.sin(a); B_CLON[j] = Math.cos(a);
+  }
+  for (let j = 0; j < B_LON; j++){
+    const a = TAU*(j+.5)/B_LON; B_MS[j] = Math.sin(a); B_MC[j] = Math.cos(a);
+  }
+  // depth of each cell's own centre normal, split into its i and j halves so
+  // the cull inside the loop is one multiply-add
+  for (let i = 0; i < B_LAT; i++){
+    const a = Math.PI*(i+.5)/B_LAT;
+    B_ZC[i] = Math.cos(a)*B_SP; B_ZS[i] = Math.sin(a)*B_CP;
+  }
+}
 
 function paintBoing(ctx,w,h,t){
   ctx.clearRect(0,0,w,h);
-  const r  = Math.min(w,h)*.26;
-  const cx = r+3 + Math.max(0, w-2*r-6)*(.5+.5*Math.sin(t*.9));
-  const cy = h-r-3 - Math.max(0, h-2*r-6)*Math.abs(Math.sin(t*1.7));
 
-  // the demo's purple grid, in amber
+  /* the room: the demo's flat grid wall, with the floor line it bounces on */
+  const floorY = h - h*.06 - 2;
+  const cell = floorY/5;
+  const cols = Math.max(3, Math.min(24, Math.round(w/cell)));
   ctx.strokeStyle = "rgba(255,182,39,.13)";
   ctx.beginPath();
-  for (let i = 0; i <= 8; i++){ const x = w*i/8; ctx.moveTo(x,0); ctx.lineTo(x,h); }
-  for (let i = 0; i <= 5; i++){ const y = h*i/5; ctx.moveTo(0,y); ctx.lineTo(w,y); }
+  for (let i = 0; i < 5; i++){ const y = floorY*i/5 + .5; ctx.moveTo(0,y); ctx.lineTo(w,y); }
+  for (let i = 0; i <= cols; i++){ const x = (w*i/cols|0) + .5; ctx.moveTo(x,0); ctx.lineTo(x,floorY); }
   ctx.stroke();
+  ctx.strokeStyle = "rgba(255,182,39,.34)";
+  ctx.beginPath(); ctx.moveTo(0,floorY+.5); ctx.lineTo(w,floorY+.5); ctx.stroke();
 
-  // checker: 12 longitude slices x 6 latitude bands, back face culled.
-  // ponytail: slices are axis-aligned rects, not spherical quads — at CRT
-  // scale nobody sees the difference, and it costs one fillRect each.
-  ctx.save();
-  ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.clip();
-  ctx.fillStyle = "rgba(255,182,39,.72)";
-  const spin = t*1.6;
-  for (let a = 0; a < 12; a++){
-    const u0 = a/12*Math.PI*2 + spin, u1 = (a+1)/12*Math.PI*2 + spin;
-    if (Math.cos(u0) < 0 && Math.cos(u1) < 0) continue;
-    const x0 = cx + Math.sin(u0)*r, x1 = cx + Math.sin(u1)*r;
-    const xl = x0 < x1 ? x0 : x1, bw = Math.abs(x1-x0) + .6;
-    for (let b = a & 1; b < 6; b += 2)
-      ctx.fillRect(xl, cy - r + 2*r*b/6, bw, 2*r/6 + .6);
+  /* motion: a long calm traverse, a bounce that lands on the floor line,
+     and a squash that only exists in the last moment before contact */
+  const r    = Math.min(h*.30, w*.16);
+  const hop  = Math.abs(Math.sin(t*1.15));
+  const q    = .13*Math.max(0, 1 - hop*7);
+  const rx   = r*(1 + q*.8), ry = r*(1 - q);
+  const span = Math.max(0, w - 2*r - 8);
+  const cx   = r + 4 + span*(.5 + .5*Math.sin(t*.42));
+  const cy   = floorY - ry - Math.max(0, floorY - 2*r - 5)*.55*hop;
+  const spin = cx/r;            // spins with travel, so it reverses at the ends
+
+  const sh = 1 - hop*.45;
+  ctx.fillStyle = "rgba(255,182,39,.10)";
+  ctx.beginPath(); ctx.ellipse(cx, floorY, rx*.92*sh, r*.20*sh, 0, 0, TAU); ctx.fill();
+
+  /* sphere: rotate the longitude tables by `spin`, project every vertex once */
+  const cs = Math.cos(spin), sn = Math.sin(spin);
+  for (let j = 0; j < B_ROW; j++){
+    B_U[j] = B_CLON[j]*cs - B_SLON[j]*sn;
+    B_V[j] = B_SLON[j]*cs + B_CLON[j]*sn;
   }
-  ctx.restore();
-  ctx.strokeStyle = "#FFB627";
-  ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.stroke();
+  for (let j = 0; j < B_LON; j++) B_MV[j] = B_MS[j]*cs + B_MC[j]*sn;
+  for (let i = 0; i <= B_LAT; i++){
+    const sl = B_SLAT[i], cl = B_CLAT[i], o = i*B_ROW;
+    for (let j = 0; j < B_ROW; j++){
+      const x = sl*B_U[j], z = sl*B_V[j];
+      const y1 = cl*B_CP - z*B_SP;
+      B_VX[o+j] = cx + (x*B_CR - y1*B_SR)*rx;
+      B_VY[o+j] = cy - (x*B_SR + y1*B_CR)*ry;
+    }
+  }
+
+  ctx.fillStyle = "#8A6212";
+  ctx.beginPath(); ctx.ellipse(cx,cy,rx,ry,0,0,TAU); ctx.fill();
+  ctx.fillStyle = "#FFB627";
+  for (let i = 0; i < B_LAT; i++){
+    const o = i*B_ROW, p = o + B_ROW, zc = B_ZC[i], zs = B_ZS[i];
+    for (let j = i & 1; j < B_LON; j += 2){
+      if (zc + zs*B_MV[j] <= 0) continue;                 // back face
+      ctx.beginPath();
+      ctx.moveTo(B_VX[o+j],   B_VY[o+j]);
+      ctx.lineTo(B_VX[o+j+1], B_VY[o+j+1]);
+      ctx.lineTo(B_VX[p+j+1], B_VY[p+j+1]);
+      ctx.lineTo(B_VX[p+j],   B_VY[p+j]);
+      ctx.fill();
+    }
+  }
+  ctx.strokeStyle = "rgba(255,233,176,.45)";
+  ctx.beginPath(); ctx.ellipse(cx,cy,rx,ry,0,0,TAU); ctx.stroke();
 }
 
 /* ── plasma — three summed sines, quantised to three amber ramps ────── */

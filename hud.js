@@ -7,6 +7,7 @@
    down every interval and rAF so an idle HUD costs nothing. */
 
 import { initMissions, MISSION_KEYS } from "./missions.js";
+import { setNewsMarkers, setNewsMode, newsMarkerCount, currentNewsMarker } from "./worldmap.js";
 import { EXTRA_GENERATORS } from "./missions-extra.js";
 import { EXTRA_PANELS, EXTRA_LAYOUTS } from "./panels-extra.js";
 
@@ -110,7 +111,29 @@ function paintGlobe(ctx,w,h,t){
 
 /* ── panel registry ────────────────────────────────────────────────── */
 
+/* Live headlines pushed from main (`claude -p`). Module-level so the panel
+   can mount and unmount freely without losing the last fetch. */
+let newsLines = ["", "  AWAITING UPLINK...", ""];
+try {
+  window.amiga?.onNews?.((lines) => {
+    if (Array.isArray(lines) && lines.length) newsLines = lines;
+  });
+} catch (e) { /* no bridge (opened in a plain browser): panel just idles */ }
+
+/* Geolocated headlines for the world map, same bridge, its own channel.
+   Handed straight to worldmap.js, which owns the marker set — nothing in
+   this file ever mixes them with the generated panel content. */
+try {
+  window.amiga?.onNewsMap?.((markers) => setNewsMarkers(markers));
+} catch (e) { /* no bridge: the map simply never enters NEWS WATCH */ }
+
+/* Headlines come from outside the app, so they are escaped before they
+   ever reach innerHTML. Everything else in this file is generated locally. */
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) =>
+  ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
 const PANELS = {
+  news: {title:"WIRE / UKRAINE", kind:"news", rate:4000},
   nettrace:   {title:"NETTRACE",    kind:"lines",  gen:"portScan",    rate:110},
   sectordump: {title:"SECTOR DUMP", kind:"lines",  gen:"hexDump",     rate:70},
   neurallink: {title:"NEURAL LINK", kind:"lines",  gen:"cryptoKey",   rate:90},
@@ -125,12 +148,12 @@ const PANELS = {
 };
 
 const LAYOUTS = {
-  idle:  [["nettrace","subsystems"], ["packets","scope","subsystems"], ["nettrace","radar"]],
+  idle:  [["news","subsystems"], ["nettrace","subsystems"], ["packets","scope","subsystems"], ["nettrace","radar"]],
   think: [["neurallink","scope","subsystems"], ["neurallink","globe"]],
   read:  [["sectordump","diskio"], ["sectordump","fswalk","subsystems"]],
   edit:  [["sectordump","subsystems","scope"], ["fswalk","diskio"]],
   bash:  [["nettrace","daemons"], ["daemons","subsystems","scope"]],
-  net:   [["globe","packets"], ["packets","radar","subsystems"]],
+  net:   [["news","globe"], ["globe","packets"], ["packets","radar","subsystems"]],
   task:  [["daemons","subsystems"], ["daemons","radar"]]
 };
 
@@ -287,7 +310,18 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
       p.gauge = [30,45,20,12];
     }
     if (spec.kind === "disk"){ p.head = 0; p.heat = new Array(80).fill(0); }
-    if (spec.kind === "lines"){
+    if (spec.kind === "news"){
+    const paint = () => {
+      const cap = Math.max(2, Math.floor(bd.clientHeight / 18));
+      bd.innerHTML = newsLines.slice(0, cap)
+        .map((l, i) => i === 0 ? `<span class="hot">${esc(l)}</span>` : esc(l))
+        .join("\n");
+    };
+    paint();
+    p.timer = setInterval(paint, spec.rate);
+  }
+
+  if (spec.kind === "lines"){
       for (let i = 0; i < 5; i++) p.lines.push(GENERATORS[spec.gen]());
       p.timer = setInterval(() => {
         p.lines.push(GENERATORS[spec.gen]());
@@ -379,6 +413,51 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
   const missions = initMissions({
     missionBarEl, effects: fx, spawnRequester, setOp, onResize: sizeAll
   });
+
+  /* ── NEWS WATCH ──────────────────────────────────────────────────────
+     What the map shows when no scripted operation is running, so the bar
+     is useful rather than only theatrical.
+
+     The mission runner owns the bar — it sets data-open itself and closes
+     it 1.8s after an operation finishes. We never fight it: while a
+     mission is active we hand the map back untouched, and afterwards we
+     re-open the bar on the next tick. The header says LIVE because this
+     is the one real thing on the panel. */
+  const bar = (id) => missionBarEl.querySelector("#" + id)
+                   || missionBarEl.querySelector(`[data-m="${id}"]`);
+  const mapEls = {panel: bar("mapPanel"), title: bar("mapTitle"), sub: bar("mapSub")};
+  let newsOwned = false;
+  const NEWS_TITLE = "NEWS WATCH \u25CF LIVE";     // LIVE: this one is not theater
+
+  function newsWatch(){
+    const busy = missions.active();
+    if (busy || !newsMarkerCount()){
+      if (!newsOwned) return;
+      newsOwned = false;
+      setNewsMode(false);
+      // a running mission closes the bar itself when it is done with it
+      if (!busy){ missionBarEl.dataset.open = "0"; sizeAll(); }
+      return;
+    }
+    if (!newsOwned){
+      newsOwned = true;
+      setNewsMode(true);
+      mapEls.panel?.classList.remove("crit");     // not an alert, it is news
+      setTimeout(sizeAll, 240);                   // after the bar transition
+    }
+    // re-assert: the mission runner's delayed close can land after we opened
+    if (missionBarEl.dataset.open !== "1"){
+      missionBarEl.dataset.open = "1";
+      setTimeout(sizeAll, 240);
+    }
+    // header is rewritten only when it actually changes — this ticks every
+    // 600ms and the terminal next door does not need the extra reflow
+    const m = currentNewsMarker(clock);
+    const sub = m ? m.place : "LIVE FEED";
+    if (mapEls.title && mapEls.title.textContent !== NEWS_TITLE)
+      mapEls.title.textContent = NEWS_TITLE;
+    if (mapEls.sub && mapEls.sub.textContent !== sub) mapEls.sub.textContent = sub;
+  }
 
   /* ── sniffer wiring: scenario always, mission only on a long leash ── */
 
@@ -480,6 +559,8 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
       }
     });
 
+    every(600, newsWatch);                               // map's idle mode
+
     every(9000,  () => { if (Math.random() < .18 + cfg.glitchRate/100*.5) spawnRequester(); });
     every(20000, () => { if (Math.random() < cfg.glitchRate/100*.12) fx.guru(); });
     addEventListener("resize", sizeAll);
@@ -492,6 +573,8 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
     timers.splice(0).forEach(clearInterval);
     removeEventListener("resize", sizeAll);
     missions.stop();
+    newsOwned = false;
+    setNewsMode(false);
     setLayout([]);                                       // clears panel timers
     mounted.forEach(p => p.el.remove());
     mounted.clear();

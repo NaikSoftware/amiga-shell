@@ -69,6 +69,102 @@ export const CITY = {
   "DIEGO GARCIA":[-7.3,72.4], BRASILIA:[-15.8,-47.9]
 };
 
+/* ── live news markers ──────────────────────────────────────────────────
+   Real geolocated headlines, pushed from main.js via hud.js. Module-level
+   rather than per-map state: there is exactly one situation display, the
+   mission runner owns the createMap() instance, and hud.js — which receives
+   the feed — has no handle on it. Deliberately kept separate from `state`
+   so a fake mission can never write into the news display or the reverse.
+   ponytail: single-map assumption; make it per-instance if a second map
+   ever exists. */
+let newsMarkers = [];
+let newsMode = false;
+const NEWS_DWELL = 6;                        // seconds per story on the label
+
+/* Replaces the marker set. Coordinates arrive already clamped from main.js's
+   parser; what is left is map-specific — drop a story that would land on top
+   of one we already kept, because at 64x32 two overlapping reticles read as
+   one broken one. One grid cell is 5.625 deg on both axes, so 6 keeps every
+   surviving marker at least a cell from its neighbour. Labels cannot collide
+   by construction — only one is on screen at a time. */
+export function setNewsMarkers(list){
+  const out = [];
+  if (Array.isArray(list)) for (const m of list){
+    if (out.length >= 7) break;
+    const lat = Number(m && m.lat), lon = Number(m && m.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+    const la = Math.max(-90, Math.min(90, lat));
+    const lo = Math.max(-180, Math.min(180, lon));
+    if (out.some(p => Math.abs(p.lat - la) < 6 && Math.abs(p.lon - lo) < 6)) continue;
+    const place = String((m && m.place) || "").slice(0,12);
+    const summary = String((m && m.summary) || "").slice(0,44);
+    if (!place) continue;
+    // label built once, here, so the painter never allocates a string
+    out.push({lat:la, lon:lo, place, label: summary ? place + ": " + summary : place});
+  }
+  newsMarkers = out;
+}
+
+/* hud.js decides when the map is in NEWS WATCH mode — during a scripted
+   operation the map belongs to the mission and the markers stay off. */
+export function setNewsMode(on){ newsMode = !!on; }
+export const newsMarkerCount = () => newsMarkers.length;
+export function currentNewsMarker(t){
+  if (!newsMarkers.length) return null;
+  return newsMarkers[Math.floor(Math.max(0,t) / NEWS_DWELL) % newsMarkers.length];
+}
+
+/* NEWS WATCH markers. Same instrument, different language: amber diamonds
+   with a slow breath instead of the targets' red blink, and exactly one
+   label on screen at a time, stepping through the stories every NEWS_DWELL
+   seconds. Nothing in here allocates — colours are literals, alpha rides
+   globalAlpha, and the label string was built when the markers arrived. */
+function paintNews(ctx, g, t, w, h){
+  if (!newsMarkers.length) return;
+  const pulse = .55 + .45*Math.sin(t*1.8);
+  const cur = Math.floor(Math.max(0,t) / NEWS_DWELL) % newsMarkers.length;
+  ctx.font = "10px monospace";
+  ctx.lineWidth = 1.2;
+  for (let i = 0; i < newsMarkers.length; i++){
+    const m = newsMarkers[i];
+    const x = g.ox + ((m.lon+180)/5.625)*g.cs;
+    const y = g.oy + ((90-m.lat)/5.625)*g.cs;
+    const on = i === cur;
+
+    ctx.globalAlpha = on ? pulse : .45;
+    ctx.strokeStyle = "#FFB627";
+    ctx.beginPath();
+    ctx.moveTo(x, y-4.5); ctx.lineTo(x+4.5, y);
+    ctx.lineTo(x, y+4.5); ctx.lineTo(x-4.5, y);
+    ctx.closePath(); ctx.stroke();
+    if (!on) continue;
+
+    ctx.beginPath(); ctx.arc(x, y, 6 + pulse*3, 0, Math.PI*2); ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = "#FFE9B0";
+    ctx.fillRect(x-1.5, y-1.5, 3, 3);
+
+    /* Label placement: to the right of the marker, flipped to the left when
+       it would run off the edge, then clamped into the canvas either way.
+       ponytail: width estimated at 6px/char rather than measured — exact
+       enough for 10px monospace, and it keeps measureText (and the
+       TextMetrics object it allocates) out of the render path. */
+    const tw = m.label.length * 6;
+    let lx = x + 9;
+    if (lx + tw > w - 2) lx = x - 9 - tw;
+    if (lx < 2) lx = 2;
+    const ly = Math.max(11, Math.min(h - 3, y + 3));
+    ctx.globalAlpha = .62;
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(lx - 2, ly - 9, tw + 4, 12);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = "#FFE9B0";
+    ctx.fillText(m.label, lx, ly);
+  }
+  ctx.globalAlpha = 1;
+  ctx.lineWidth = 1;
+}
+
 function mapGeom(w,h){
   const cs = Math.min(w/MAPW, h/MAPH);
   return {cs, ox:(w - cs*MAPW)/2, oy:(h - cs*MAPH)/2};
@@ -121,6 +217,12 @@ export function createMap(canvas){
         }
       }
     }
+
+    /* NEWS WATCH owns the map whenever hud.js says no operation is running.
+       It returns here so a finished mission's leftover targets and routes
+       can never share the display with real headlines — fake and real do
+       not mix on this panel, in either direction. */
+    if (newsMode){ paintNews(ctx, g, t, w, h); return; }
 
     // static links (breach routes)
     ctx.lineWidth = 1;
@@ -189,6 +291,7 @@ export function createMap(canvas){
       ctx.fillStyle = "#FFE9B0";
       ctx.fillText(name, x + 9, y + 3);
     });
+
   }
 
   return {

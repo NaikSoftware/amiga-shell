@@ -48,13 +48,22 @@ const THEME = {
 
 const term = new Terminal({
   allowProposedApi: true,
-  /* Topaz has a small glyph set and renders .notdef as a SOLID BLOCK, which
-     in Claude Code's input line looks exactly like a second cursor sitting
-     next to the real one. The tail of this stack exists to catch the symbols
-     Topaz lacks (box drawing, geometric shapes, arrows) before the browser
-     falls back to .notdef. Do not trim it back to just Topaz. */
+  /* NOT Topaz by default, deliberately.
+
+     Topaz's cmap stops at U+00FF and its .notdef glyph is a SOLID FILLED
+     BLOCK. Modern TUIs emit box drawing and symbols constantly — Claude Code
+     alone uses U+2500 U+2588 U+276F U+23F5 U+2733 — and every one of them
+     painted as a stray block, which next to the real cursor read as a
+     duplicate cursor. Confirmed by elimination: dropping Topaz from this
+     stack fixes it; `unicode-range: U+0000-00FF` on the @font-face does NOT
+     (xterm's renderer does not honour it).
+
+     The Amiga identity lives in the Workbench chrome, the phosphor palette
+     and the CRT layers — not in the one place that has to render arbitrary
+     program output correctly. Set config.fontFamily to put Topaz back if you
+     only ever run plain ASCII in here. */
   fontFamily: cfg.fontFamily ||
-    "Topaz, 'Ubuntu Mono', 'DejaVu Sans Mono', 'Noto Sans Symbols 2', 'Noto Sans Mono', monospace",
+    "'Ubuntu Mono', 'DejaVu Sans Mono', 'Noto Sans Mono', monospace",
   fontSize: Math.max(8, Math.round(Number(cfg.fontSize) || DEFAULTS.fontSize)),
   lineHeight: 1.05,
   cursorBlink: cfg.cursorBlink !== false,

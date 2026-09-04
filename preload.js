@@ -20,5 +20,9 @@ contextBridge.exposeInMainWorld("amiga", {
   shellError: boot.shellError,
   minimize: () => ipcRenderer.send("win:minimize"),
   maximize: () => ipcRenderer.send("win:maximize"),
-  close: () => ipcRenderer.send("win:close")
+  close: () => ipcRenderer.send("win:close"),
+  // headlines pushed from main; renderer never spawns anything itself
+  onNews: (cb) => ipcRenderer.on("news:data", (_e, lines) => cb(lines)),
+  // geolocated headlines for the world map, already parsed and clamped
+  onNewsMap: (cb) => ipcRenderer.on("newsmap:data", (_e, markers) => cb(markers))
 });
