@@ -39,8 +39,31 @@ fall back to the defaults below rather than reaching CSS as `NaN`.
 | `effects.curvature` | 0–100 | `15` | Screen barrel curve |
 | `effects.glitchRate` | 0–100 | `8` | How often glitch bursts fire |
 | `effects.flicker` | 0–100 | `5` | Brightness flicker |
+| `micEqualizer` | bool | `false` | Feed the real microphone into WAVEFORM / SPECTRUM |
 
 All effect sliders are 0–100 and clamped.
+
+## Microphone (off by default)
+
+The `WAVEFORM` and `SPECTRUM` panels can show your actual microphone —
+`getUserMedia` -> `AnalyserNode`, a live trace in the first and a
+log-spaced equaliser with falling peak caps in the second. It is off
+unless `config.json` contains `"micEqualizer": true`, and only then does
+the app ever ask for the device. A terminal emulator has no business
+opening the mic on its own.
+
+When it is on, the panel headers read `WAVEFORM  MIC LIVE` /
+`SPECTRUM  MIC LIVE` — and only while audio is genuinely arriving. If the
+key is absent or false, permission is denied, there is no input device, or
+anything else goes wrong, the panels keep drawing the same generated
+animation they always did, with the plain header. No dialog, no console
+noise, no retry loop: one refusal is the answer. Same rule as `PACKET LOG`,
+which is real `/proc/net` data on Linux and fiction everywhere else.
+
+The device is opened lazily by the first frame that needs it and released
+five seconds after the last one — so rotating the panel off screen, or
+switching the HUD off with `F10`, closes the stream and the `AudioContext`
+rather than leaving the mic indicator burning.
 
 ## Hotkeys
 

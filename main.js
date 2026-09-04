@@ -10,6 +10,7 @@
 const { execFile } = require("child_process");
 const os = require("os");
 const netprobe = require("./netprobe.js");
+const sysprobe = require("./sysprobe.js");
 
 const fs = require("fs");
 const path = require("path");
@@ -70,6 +71,15 @@ function normalizeConfig(raw) {
     typingEffects: typeof r.typingEffects === "boolean" ? r.typingEffects : true,
     // real /proc/net telemetry in PACKET LOG; false keeps the fake generator
     realPackets: typeof r.realPackets === "boolean" ? r.realPackets : true,
+    // real microphone in the WAVEFORM / SPECTRUM panels. Strict === true so a
+    // missing key, "true" or 1 all read as OFF: a terminal must never open the
+    // mic by accident, and off is the only safe default.
+    micEqualizer: r.micEqualizer === true,
+    // real CPU/mem/disk/GPU/battery telemetry in the HUD gauges; false leaves
+    // the panels with nothing rather than with invented numbers
+    sysTelemetry: typeof r.sysTelemetry === "boolean" ? r.sysTelemetry : true,
+    sysIntervalMs: Number.isFinite(Number(r.sysIntervalMs))
+      ? Math.max(250, Math.min(10000, Number(r.sysIntervalMs))) : 1000,
     news: typeof r.news === "boolean" ? r.news : true,
     newsIntervalMinutes: Number.isFinite(Number(r.newsIntervalMinutes))
       ? Math.max(10, Math.min(720, Number(r.newsIntervalMinutes))) : 30,
@@ -281,6 +291,24 @@ function spawnPty() {
       } catch (e) { /* telemetry only; never disturb the terminal */ }
     }, 1000);
     netTimer.unref?.();
+  }
+
+  /* Real system telemetry for the gauges. Two timers because the two tiers
+     cost very different amounts: os.cpus()/freemem is free, but statfs and
+     nvidia-smi are not worth doing at 1 Hz. Both are fire-and-forget — a
+     rejected sample is a skipped frame, never a thrown error near the PTY. */
+  if (sysprobe.AVAILABLE && config.sysTelemetry !== false) {
+    const push = (payload) => {
+      if (win && !win.isDestroyed()) win.webContents.send("sys:data", payload);
+    };
+    const fastMs = config.sysIntervalMs || 1000;
+    const fast = setInterval(() => { sysprobe.sample().then(push, () => {}); }, fastMs);
+    const slow = setInterval(() => { sysprobe.refreshSlow().catch(() => {}); },
+                             Math.max(5000, fastMs * 5));
+    // seed the slow tier immediately so the first second is not all nulls
+    sysprobe.refreshSlow().catch(() => {});
+    fast.unref?.();
+    slow.unref?.();
   }
 
   term.onData((data) => {

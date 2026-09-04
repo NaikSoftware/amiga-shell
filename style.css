@@ -251,6 +251,23 @@ body{
 }
 .panel.crit{border-color:#FF4444}
 .panel.crit .panel-hd{background:#FF4444}
+/* Pin gadget. Sits where the activity dot used to; a filled diamond means
+   pinned. Deliberately the same 7px visual weight so the header does not
+   grow, and hit area is padded out to something clickable. */
+.panel-hd .pin{
+  cursor:pointer;
+  font-size:9px;
+  line-height:1;
+  padding:1px 3px;
+  margin:-1px -2px -1px 0;
+  color:#000;
+  user-select:none;
+}
+.panel-hd .pin:hover{color:#FFE9B0;background:#000}
+.panel-hd .pin:focus-visible{outline:1px solid #000;outline-offset:1px}
+.panel.pinned{border-color:#FFE9B0}
+.panel.pinned .panel-hd{background:#FFE9B0}
+
 .panel-hd .dot{width:7px;height:7px;background:#000;animation:blink 1.4s steps(1) infinite}
 .panel-bd{
   flex:1 1 auto;min-height:0;overflow:hidden;padding:7px 8px;

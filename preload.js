@@ -24,6 +24,8 @@ contextBridge.exposeInMainWorld("amiga", {
   // headlines pushed from main; renderer never spawns anything itself
   onNews: (cb) => ipcRenderer.on("news:data", (_e, lines) => cb(lines)),
   onNet: (cb) => ipcRenderer.on("net:data", (_e, lines) => cb(lines)),
+  // real CPU/mem/disk/GPU/battery sample; see the payload comment in sysprobe.js
+  onSys: (cb) => ipcRenderer.on("sys:data", (_e, payload) => cb(payload)),
   // geolocated headlines for the world map, already parsed and clamped
   onNewsMap: (cb) => ipcRenderer.on("newsmap:data", (_e, markers) => cb(markers))
 });

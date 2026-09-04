@@ -238,6 +238,11 @@ if (cfg.hud === false) toggleHud(false);
 // ponytail: mission keys hard-coded from the spec's list; hud.js owns the
 // scripts. A key it does not know is a no-op there, not a crash here.
 const MISSION_KEYS = ["kremlin", "icbm", "delworld", "gibson", "satellite"];
+/* Swap the HUD to a different layout for the current scenario, now. */
+function shufflePanels(){
+  try { hud && hud.shuffle && hud.shuffle(); } catch (e) {}
+}
+
 function randomMission(){
   try {
     hud && hud.runMission(MISSION_KEYS[Math.floor(Math.random() * MISSION_KEYS.length)]);
@@ -264,11 +269,13 @@ function pasteClipboard(){
 function hotkey(e){
   if (e.key === "F9")  return () => setPreset(order[(presetIdx + 1) % order.length]);
   if (e.key === "F10") return () => toggleHud();
+  if (e.key === "F8")  return shufflePanels;
   if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey){
     switch (String(e.key).toLowerCase()){
       case "c": return copySelection;
       case "v": return pasteClipboard;
       case "m": return randomMission;
+      case "l": return shufflePanels;
     }
   }
   return null;

@@ -7,7 +7,10 @@
    The `lines` panels here feed on EXTRA_GENERATORS from missions-extra.js,
    so hud.js must merge that in before mounting them.
 
-   Painters are called as paint(ctx, w, h, t, load) from the rAF loop, next
+   Painters are called as paint(ctx, w, h, t, load, mic) from the rAF loop.
+   `mic` is hud.js's microphone singleton — getFreq()/getWave() give back a
+   reused Uint8Array when a real stream is running and null otherwise, which
+   is the default. A painter that ignores it just stays fiction. Next
    to a live terminal, so the house rules are: no allocation inside the
    loop, no shadowBlur, no filter, no per-frame arrays. Anything that needs
    state keeps it in a module-level typed array, the way BLIPS does in
@@ -55,6 +58,10 @@ function paintIntercept(ctx, w, h, t) {
   for (let i = 0; i <= 8; i++) ctx.fillRect((w / 8) * i, h - 3, 1, 3);
 }
 
+/* Three-step amber ramp. paintPlasma referenced this and it did not exist,
+   so the panel threw on its first frame and took the whole rAF loop with it. */
+const PLASMA_RAMP = ["#3A2A08", "#8A6212", "#FFB627"];
+
 function paintPlasma(ctx,w,h,t){
   const cell = 12;                       // coarse on purpose: 1985 called
   const cols = Math.ceil(w/cell), rows = Math.ceil(h/cell);
@@ -100,21 +107,69 @@ function paintHelix(ctx,w,h,t){
   ctx.stroke();
 }
 
-/* ── spectrum analyser — 24 bars with peak caps, state in a typed array ─ */
+/* ── spectrum analyser — 24 bars with falling peak caps ──────────────
 
-const SPEC = new Float32Array(24);
+   Real microphone when hud.js hands us a live analyser (`mic.getFreq()`
+   returns its reused Uint8Array), the original fake maths when it hands us
+   null — which is the default, and every failure case besides. Nothing here
+   knows how the audio was obtained; it is passed in, so the whole panel is
+   testable against a stub.
 
-function paintSpectrum(ctx,w,h,t,load){
+   FFT bins are linear in frequency, so a straight bin-per-bar mapping puts
+   everything a human can hear in the first two bars and spends the other 22
+   on inaudible hiss. The bars are log-spaced instead — same reason every
+   real equaliser is drawn in octaves. */
+
+const SPEC = new Float32Array(24);   // bar heights, 0..1, smoothed
+const PEAK = new Float32Array(24);   // peak-hold caps, fall slowly
+
+/* Room noise sits well above zero in a byte-frequency bin, so anything under
+   this reads as silence and the display flattens instead of shimmering.
+   Calibration knob: lower it for a quiet mic, raise it in a noisy room. */
+const FREQ_FLOOR = .30;
+
+/* Log-spaced bin edges, built once per (binCount, barCount) pair and then
+   reused — this is per-frame code, it allocates nothing after the first call. */
+let EDGES = null, EDGES_KEY = 0;
+function logEdges(bins, n){
+  const key = bins*100 + n;
+  if (EDGES_KEY === key) return EDGES;
+  const e = new Uint16Array(n + 1);
+  // stop at ~72% of Nyquist: the top of the range is inaudible content that
+  // would otherwise eat a third of the panel
+  const lo = 1, hi = Math.max(lo + n, Math.min(bins, Math.round(bins*.72)));
+  for (let i = 0; i <= n; i++){
+    const v = Math.round(lo * Math.pow(hi/lo, i/n));
+    e[i] = i && v <= e[i-1] ? e[i-1] + 1 : v;      // keep the edges increasing
+  }
+  EDGES = e; EDGES_KEY = key;
+  return e;
+}
+
+function paintSpectrum(ctx,w,h,t,load,mic){
   ctx.clearRect(0,0,w,h);
   const n = SPEC.length, bw = w/n, k = load === undefined ? 1 : .25 + load*.75;
+  const freq = mic && mic.getFreq();
+  const e = freq ? logEdges(freq.length, n) : null;
   for (let i = 0; i < n; i++){
-    const target = Math.abs(Math.sin(t*(1.1 + i*.13) + i*1.7)) * (1 - i/n*.55) * k;
-    SPEC[i] += (target - SPEC[i]) * .25;
+    let target;
+    if (freq){
+      let mx = 0;                                  // loudest bin in the octave
+      for (let j = e[i]; j < e[i+1] && j < freq.length; j++)
+        if (freq[j] > mx) mx = freq[j];
+      target = (mx/255 - FREQ_FLOOR) / (1 - FREQ_FLOOR);
+      if (target < 0) target = 0; else if (target > 1) target = 1;
+    } else {
+      target = Math.abs(Math.sin(t*(1.1 + i*.13) + i*1.7)) * (1 - i/n*.55) * k;
+    }
+    SPEC[i] += (target - SPEC[i]) * (freq ? .40 : .25);
+    PEAK[i] = SPEC[i] > PEAK[i] ? SPEC[i] : Math.max(0, PEAK[i] - .006);
+
     const bh = Math.max(1, SPEC[i]*(h-6));
     ctx.fillStyle = i & 1 ? "#FFB627" : "rgba(255,182,39,.62)";
     ctx.fillRect(i*bw + 1, h - bh - 2, bw - 2, bh);
-    ctx.fillStyle = "#FFE9B0";
-    ctx.fillRect(i*bw + 1, h - bh - 4, bw - 2, 2);
+    ctx.fillStyle = "#FFE9B0";                     // the cap, falling on its own
+    ctx.fillRect(i*bw + 1, h - Math.max(1, PEAK[i]*(h-6)) - 4, bw - 2, 2);
   }
 }
 
@@ -185,6 +240,8 @@ function paintCube(ctx,w,h,t){
 
 /* ── registry ──────────────────────────────────────────────────────── */
 
+export { paintSpectrum };
+
 export const EXTRA_PANELS = {
   deepspace: {title:"DEEP SPACE NET", kind:"lines", gen:"deepSpace", rate:260},
   codegen: {title:"SOURCE codegen.c", kind:"lines", gen:"codeGen", rate:150},
@@ -200,7 +257,7 @@ export const EXTRA_PANELS = {
   intercept:  {title:"SIGINT WATERFALL", kind:"canvas", paint:paintIntercept, grow:0, h:128},
   plasma:     {title:"PLASMA",       kind:"canvas", paint:paintPlasma,   grow:0, h:104},
   helix:      {title:"HELIX",        kind:"canvas", paint:paintHelix,    grow:0, h:112},
-  spectrum:   {title:"SPECTRUM",     kind:"canvas", paint:paintSpectrum, grow:0, h:96},
+  spectrum:   {title:"SPECTRUM",     kind:"canvas", paint:paintSpectrum, grow:0, h:96, mic:1},
   vitals:     {title:"VITALS",       kind:"canvas", paint:paintEkg,      grow:0, h:92},
   vectors:    {title:"VECTOR CUBE",  kind:"canvas", paint:paintCube,     grow:0, h:128}
 };

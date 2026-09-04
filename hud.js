@@ -10,6 +10,7 @@ import { initMissions, MISSION_KEYS } from "./missions.js";
 import { setNewsMarkers, setNewsMode, newsMarkerCount, currentNewsMarker } from "./worldmap.js";
 import { EXTRA_GENERATORS } from "./missions-extra.js";
 import { EXTRA_PANELS, EXTRA_LAYOUTS } from "./panels-extra.js";
+import { CLOCK_PANELS, CLOCK_LAYOUTS } from "./panels-clock.js";
 
 const $ = id => document.getElementById(id);
 const rnd = (a,b) => a + Math.random()*(b-a);
@@ -42,21 +43,165 @@ export const GENERATORS = {
     `${String(Math.floor(rnd(1,400))).padStart(4)}K`
 };
 
+/* ── microphone ───────────────────────────────────────────────── */
+
+/* Real input for WAVEFORM and SPECTRUM. OFF unless `config.micEqualizer`
+   is exactly `true` — a terminal emulator does not open the microphone on
+   its own, ever. Every failure lands in the same place: getFreq()/getWave()
+   return null and the panels keep drawing the fake maths they always drew.
+   Failure means all of: the key absent or false, permission denied, no
+   input device, no `navigator.mediaDevices` (opened as a plain file:// page
+   in a browser without it), the AudioContext refusing to construct, or the
+   analyser throwing later. There is deliberately NO retry — one refusal is
+   the answer, not a reason to poke the device 60 times a second.
+
+   Started lazily by the first paint that asks for data, and released
+   MIC.IDLE_MS after the last one, so a rotated-out panel or a HUD switched
+   off with F10 does not sit there holding the mic open. Same discipline as
+   PACKET LOG: real when it is real, silently fake when it is not, and the
+   header only says LIVE when bytes are genuinely arriving. */
+
+const MIC = {
+  FFT: 1024,        // 512 bins, ~43 Hz each at 44.1 kHz
+  IDLE_MS: 5000,    // release the device this long after the last paint
+  // Calibration knob. Real mics differ by 20 dB and no room is silent, so
+  // samples under this read as silence and the trace goes flat instead of
+  // jittering. Raise it if a quiet room still wobbles.
+  WAVE_FLOOR: .02
+};
+
+export const micsource = (() => {
+  let phase = "off";                 // off | starting | live | dead
+  let actx = null, stream = null, analyser = null;
+  let freq = null, wave = null;      // allocated once, refilled every frame
+  let lastUse = 0, lastResume = 0, watchdog = 0;
+
+  // No bridge (plain browser) or no key => stays off. Read defensively:
+  // main.js may not whitelist micEqualizer at all, and that must read false.
+  const enabled = () => {
+    try { return window.amiga?.config?.micEqualizer === true; }
+    catch (_) { return false; }
+  };
+
+  function release(){
+    try { stream?.getTracks().forEach(t => t.stop()); } catch (_) {}
+    try { actx?.close(); } catch (_) {}
+    if (watchdog){ clearInterval(watchdog); watchdog = 0; }
+    stream = actx = analyser = freq = wave = null;
+  }
+
+  function start(){
+    phase = "starting";
+    let p;
+    try {
+      // the processing chain is off: we want what the room sounds like,
+      // not what a voice-call filter thinks the room should sound like
+      p = navigator.mediaDevices.getUserMedia({audio:{
+        echoCancellation:false, noiseSuppression:false, autoGainControl:false
+      }});
+    } catch (_) { phase = "dead"; return; }
+    Promise.resolve(p).then(s => {
+      stream = s;
+      if (phase !== "starting"){ release(); return; }   // stopped mid-flight
+      const AC = window.AudioContext || window.webkitAudioContext;
+      actx = new AC();
+      analyser = actx.createAnalyser();
+      analyser.fftSize = MIC.FFT;
+      analyser.smoothingTimeConstant = .72;
+      actx.createMediaStreamSource(s).connect(analyser);
+      freq = new Uint8Array(analyser.frequencyBinCount);
+      wave = new Uint8Array(analyser.fftSize);
+      try { actx.resume?.().catch(() => {}); } catch (_) {}
+      watchdog = setInterval(() => {
+        if (Date.now() - lastUse > MIC.IDLE_MS) stop();
+      }, 2000);
+      phase = "live";
+    }).catch(() => { phase = "dead"; release(); });     // denied, or no device
+  }
+
+  function stop(){
+    if (phase === "off") return;
+    release();
+    if (phase !== "dead") phase = "off";               // dead stays dead
+  }
+
+  // true only when the analyser is actually running; also the lazy start
+  // point and the liveness timestamp the watchdog reads.
+  function ready(){
+    lastUse = Date.now();
+    if (phase === "live"){
+      if (actx.state === "running") return true;
+      // autoplay policy can park a fresh context; nudge it at most once a
+      // second and report not-live until it really runs
+      if (lastUse - lastResume > 1000){
+        lastResume = lastUse;
+        try { actx.resume().catch(() => {}); } catch (_) {}
+      }
+      return false;
+    }
+    if (phase === "off" && enabled()) start();
+    return false;
+  }
+
+  // no closures, no arguments object, nothing allocated: this runs twice a
+  // frame next to a live terminal
+  function grab(wantFreq){
+    if (!ready()) return null;
+    const buf = wantFreq ? freq : wave;
+    try {
+      if (wantFreq) analyser.getByteFrequencyData(buf);
+      else analyser.getByteTimeDomainData(buf);
+      return buf;
+    } catch (_) { phase = "dead"; release(); return null; }
+  }
+
+  return {
+    getFreq(){ return grab(true); },
+    getWave(){ return grab(false); },
+    live(){ return phase === "live" && !!actx && actx.state === "running"; },
+    stop
+  };
+})();
+
 /* ── canvas instruments ────────────────────────────────────────────── */
 
 const BLIPS = Array.from({length:7}, () => ({a: rnd(0,Math.PI*2), d: rnd(.25,.95)}));
 
-function paintScope(ctx,w,h,t,load){
+/* Slow peak follower, so a quiet mic still fills the panel and a loud one
+   does not clip off the top. One frame of lag (we gain this frame by last
+   frame's peak) is invisible and saves buffering the samples. */
+let scopePeak = .2;
+
+export function paintScope(ctx,w,h,t,load,mic){
   ctx.clearRect(0,0,w,h);
   ctx.strokeStyle = "rgba(255,182,39,.18)";
   ctx.beginPath(); ctx.moveTo(0,h/2); ctx.lineTo(w,h/2); ctx.stroke();
   ctx.strokeStyle = "#FFB627";
   ctx.beginPath();
-  for (let x = 0; x < w; x++){
-    const p = x/w * Math.PI*6;
-    const y = h/2 + Math.sin(p + t*3)*h*.24*load
-      + Math.sin(p*2.7 - t*4.4)*h*.11*load + (Math.random()-.5)*h*.05*load;
-    x ? ctx.lineTo(x,y) : ctx.moveTo(x,y);
+
+  const s = mic && mic.getWave();       // null unless a real stream is up
+  if (s){
+    const step = s.length / w, amp = h*.44, g = .92/scopePeak;
+    let mx = 0;
+    for (let x = 0; x < w; x++){
+      const raw = (s[(x*step)|0] - 128)/128;
+      const a = raw < 0 ? -raw : raw;
+      if (a > mx) mx = a;
+      let d = a < MIC.WAVE_FLOOR ? 0 : raw*g;    // silence => flat line
+      if (d > 1.1) d = 1.1; else if (d < -1.1) d = -1.1;
+      const y = h/2 - d*amp;
+      x ? ctx.lineTo(x,y) : ctx.moveTo(x,y);
+    }
+    // decay towards the current peak, never below a floor that would turn
+    // the gain into a divide-by-nothing
+    scopePeak = Math.max(mx, scopePeak*.97, .05);
+  } else {
+    for (let x = 0; x < w; x++){
+      const p = x/w * Math.PI*6;
+      const y = h/2 + Math.sin(p + t*3)*h*.24*load
+        + Math.sin(p*2.7 - t*4.4)*h*.11*load + (Math.random()-.5)*h*.05*load;
+      x ? ctx.lineTo(x,y) : ctx.moveTo(x,y);
+    }
   }
   ctx.stroke();
 }
@@ -118,6 +263,14 @@ function paintGlobe(ctx,w,h,t){
    the fake generator — so PACKET LOG is real where it can be and fiction
    where it cannot, never a fake claiming to be real. */
 let netLines = [];
+
+/* Real system telemetry pushed from main (sysprobe). Every field may be null
+   and nothing is ever fabricated — a gauge with no real number behind it
+   shows its simulated label instead of inventing a figure. */
+let sys = null;
+try {
+  window.amiga?.onSys?.((payload) => { sys = payload || null; });
+} catch (e) { /* no bridge: gauges stay simulated */ }
 try {
   window.amiga?.onNet?.((lines) => { if (Array.isArray(lines)) netLines = lines; });
 } catch (e) { /* no bridge: stays empty, generator takes over */ }
@@ -141,6 +294,35 @@ try {
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) =>
   ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
+/* Panels that threw while painting. Never mounted again this session. */
+const BROKEN = new Set();
+
+/* Panels the user pinned. A pinned panel survives every layout change, the
+   ambient rotation and a manual shuffle — it is unmounted only by unpinning
+   it or turning the HUD off. Capped so a wall of pins cannot squeeze the
+   rotating panels out of the column entirely. */
+const PINNED = new Set();
+const MAX_PINNED = 3;
+
+/* Gauge sources, in priority order. Each returns {label,value,text} when a
+   genuinely real number exists, or null to fall back to the simulated bar.
+   Nothing here invents a figure: sysprobe reports null when it cannot read a
+   source, and that null propagates all the way out to the label, so a bar is
+   never a fake number wearing a real-looking name. */
+const SIM_LABEL = ["BLITTER", "COPPER", "UPLINK", "ENTROPY"];
+const REAL_GAUGE = [
+  (s) => s && s.cpu && s.cpu.agg != null
+    ? { label: "CPU", value: s.cpu.agg, text: Math.round(s.cpu.agg) } : null,
+  (s) => s && s.mem && s.mem.usedPct != null
+    ? { label: "MEM", value: s.mem.usedPct, text: Math.round(s.mem.usedPct) } : null,
+  (s) => s && s.gpu && s.gpu.util != null
+    ? { label: "GPU", value: s.gpu.util, text: Math.round(s.gpu.util) }
+    : (s && s.tempC != null
+       ? { label: "TEMP", value: Math.min(100, s.tempC), text: s.tempC + "C" } : null),
+  (s) => s && s.fs && s.fs.root && s.fs.root.usedPct != null
+    ? { label: "DISK", value: s.fs.root.usedPct, text: Math.round(s.fs.root.usedPct) } : null
+];
+
 const PANELS = {
   news: {title:"WIRE / UKRAINE", kind:"news", rate:15000},
   nettrace:   {title:"PACKET LOG",  kind:"net",    gen:"portScan",    rate:900},
@@ -149,7 +331,7 @@ const PANELS = {
   daemons:    {title:"DAEMONS",     kind:"lines",  gen:"procList",    rate:220},
   packets:    {title:"PACKET LOG",  kind:"lines",  gen:"packetTrace", rate:130},
   fswalk:     {title:"FILE TABLE",  kind:"lines",  gen:"fsWalk",      rate:150},
-  scope:      {title:"WAVEFORM",    kind:"canvas", paint:paintScope,  grow:0, h:92},
+  scope:      {title:"WAVEFORM",    kind:"canvas", paint:paintScope,  grow:0, h:92, mic:1},
   radar:      {title:"PROXIMITY",   kind:"canvas", paint:paintRadar,  grow:0, h:128},
   globe:      {title:"ORBIT TRACK", kind:"canvas", paint:paintGlobe,  grow:0, h:128},
   subsystems: {title:"SUBSYSTEMS",  kind:"gauges", grow:0},
@@ -170,8 +352,11 @@ const LAYOUTS = {
    scope so they are in place before the first panel mounts. */
 Object.assign(GENERATORS, EXTRA_GENERATORS);
 Object.assign(PANELS, EXTRA_PANELS);
+Object.assign(PANELS, CLOCK_PANELS);
 for (const k in EXTRA_LAYOUTS)
   if (LAYOUTS[k]) LAYOUTS[k] = LAYOUTS[k].concat(EXTRA_LAYOUTS[k]);
+for (const k in CLOCK_LAYOUTS)
+  if (LAYOUTS[k]) LAYOUTS[k] = LAYOUTS[k].concat(CLOCK_LAYOUTS[k]);
 
 
 const OPNAME = {
@@ -300,7 +485,23 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
 
     const hd = document.createElement("div");
     hd.className = "panel-hd";
-    hd.innerHTML = `<span>${spec.title}</span><span class="dot"></span>`;
+    hd.innerHTML = `<span>${spec.title}</span>` +
+      `<span class="pin" role="button" tabindex="0" title="Pin this panel">` +
+      `${PINNED.has(key) ? "\u25C6" : "\u25C7"}</span>`;
+    const pinEl = hd.querySelector(".pin");
+    const togglePin = () => {
+      if (PINNED.has(key)) PINNED.delete(key);
+      else if (PINNED.size < MAX_PINNED) PINNED.add(key);
+      else return;                       // at the cap: unpin something first
+      pinEl.textContent = PINNED.has(key) ? "\u25C6" : "\u25C7";
+      el.classList.toggle("pinned", PINNED.has(key));
+      pinEl.title = PINNED.has(key) ? "Unpin this panel" : "Pin this panel";
+    };
+    pinEl.addEventListener("click", togglePin);
+    pinEl.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " "){ ev.preventDefault(); togglePin(); }
+    });
+    if (PINNED.has(key)) el.classList.add("pinned");
     const bd = document.createElement("div");
     bd.className = "panel-bd";
     el.append(hd, bd);
@@ -312,10 +513,14 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
       const cv = document.createElement("canvas");
       bd.appendChild(cv);
       p.canvas = cv; p.ctx = cv.getContext("2d");
+      // panels that can show real audio own two fixed header strings, so
+      // the honest one can be swapped in per frame without allocating
+      if (spec.mic){ p.hdText = hd.firstChild; p.titleLive = spec.title + "  MIC LIVE"; }
     }
     if (spec.kind === "gauges"){
-      bd.innerHTML = ["BLITTER","COPPER","UPLINK","ENTROPY"].map((l,i) =>
-        `<div class="gauge"><span class="lbl">${l}</span><span class="bar">
+      // labels are rewritten per-tick to match whichever source is real
+      bd.innerHTML = [0,1,2,3].map((i) =>
+        `<div class="gauge"><span class="lbl" data-l="${i}">----</span><span class="bar">
          <span class="fill" data-g="${i}"></span></span><span class="val" data-v="${i}">0</span></div>`).join("");
       p.gauge = [30,45,20,12];
     }
@@ -373,6 +578,9 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
   }
 
   function setLayout(keys){
+    // pinned panels are always part of the layout, and lead it so their
+    // position does not jump around as the rotating panels change
+    keys = [...new Set([...PINNED, ...keys])];
     for (const [k,p] of mounted){
       if (!keys.includes(k)){
         clearInterval(p.timer);
@@ -520,10 +728,30 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
   function frame(now){
     clock = (now - t0)/1000;
     mounted.forEach(p => {
-      if (p.spec.kind === "canvas" && p.canvas.width)
-        p.spec.paint(p.ctx, p.canvas.width, p.canvas.height, clock, load);
+      if (p.spec.kind === "canvas" && p.canvas.width){
+        /* One painter must never be able to kill the render loop. A panel
+           that throws is unmounted and never mounted again this session,
+           rather than taking the whole HUD — and the terminal — down with
+           it. This is not hypothetical: a painter referencing an undefined
+           constant threw on its first frame and froze the entire HUD until
+           it was found. */
+        try {
+          p.spec.paint(p.ctx, p.canvas.width, p.canvas.height, clock, load, micsource);
+        } catch (e) {
+          console.warn("[amigaterm] panel", p.key, "threw; retiring it:", e);
+          BROKEN.add(p.key);
+          try { unmount(p); mounted.delete(p.key); } catch (_) {}
+          return;
+        }
+        if (p.hdText){
+          // says MIC LIVE only while bytes are genuinely arriving
+          const s = micsource.live() ? p.titleLive : p.spec.title;
+          if (p.hdText.textContent !== s) p.hdText.textContent = s;
+        }
+      }
     });
-    missions.paint(clock);
+    try { missions.paint(clock); }
+    catch (e) { console.warn("[amigaterm] mission painter threw:", e); }
     raf = requestAnimationFrame(frame);
   }
 
@@ -559,7 +787,19 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
       mounted.forEach(p => {
         if (p.spec.kind === "gauges"){
           p.gauge.forEach((v,i) => {
-            // typing pushes the bars up and they fall back on their own
+            // Real reading if sysprobe has one, otherwise the simulated bar.
+        // The label says which — a fake number under a real-looking label
+        // is exactly what this whole exercise is meant to remove.
+        const real = REAL_GAUGE[i] && REAL_GAUGE[i](sys);
+        if (real){
+          p.body.querySelector(`[data-l="${i}"]`).textContent = real.label;
+          const v = Math.max(0, Math.min(100, real.value));
+          p.gauge[i] = p.gauge[i] + (v - p.gauge[i]) * .35;
+          p.body.querySelector(`[data-g="${i}"]`).style.width = p.gauge[i].toFixed(0)+"%";
+          p.body.querySelector(`[data-v="${i}"]`).textContent = real.text;
+          return;
+        }
+        p.body.querySelector(`[data-l="${i}"]`).textContent = SIM_LABEL[i];
         const t = load > .5 ? rnd(45,98) : rnd(8,42);
         const target = Math.min(99, t + typingBoost * 45);
             p.gauge[i] = v + (target - v)*.22;
@@ -620,6 +860,7 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
     timers.splice(0).forEach(clearInterval);
     removeEventListener("resize", sizeAll);
     missions.stop();
+    micsource.stop();          // F10 off must not leave the mic open
     newsOwned = false;
     setNewsMode(false);
     setLayout([]);                                       // clears panel timers
@@ -651,6 +892,14 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
     },
     setEnabled(on){ on ? start() : stop(); },
     setConfig(c){ cfg = normCfg(c); },
+    /* Manual shuffle. Re-picks the current scenario's layout and resets the
+       hold timer, so an explicit shuffle is never swallowed by the 45s
+       minimum that stops automatic switching looking like a slideshow. */
+    shuffle(){
+      if (!running) return;
+      lastLayout = Date.now();
+      setLayout(pick(LAYOUTS[scenarioKey] || LAYOUTS.idle));
+    },
     runMission(key){ if (running && MISSION_KEYS.includes(key)) missions.run(key); },
     missionKeys: MISSION_KEYS
   };
