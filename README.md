@@ -68,9 +68,46 @@ source is <https://github.com/rewtnull/amigafonts> (`ttf/`).
 
 `docs/superpowers/specs/2026-09-04-amiga-terminal-design.md`.
 
-## Note on `--no-sandbox`
+## Platforms
 
-`npm start` passes `--no-sandbox`. On Linux, Electron's `chrome-sandbox` helper
+Developed and tested on **Linux (Wayland/KDE)**. It should run on macOS and
+Windows — nothing in the code is Linux-specific — but neither has been tested,
+so treat the notes below as "what to expect", not "known good".
+
+### macOS
+
+```sh
+npm install     # MUST be run on the Mac: node-pty compiles a native binary,
+                # so a node_modules copied from Linux will not load
+npm start
+```
+
+Needs Xcode Command Line Tools (`xcode-select --install`) for that build.
+`npm start` detects the platform and omits `--no-sandbox`, which is a Linux-only
+workaround — on macOS the Chromium sandbox works and stays on.
+
+Two things differ on a Mac:
+
+- **Font.** The stack includes `Menlo`, `SF Mono` and `Monaco`, so it will pick
+  Menlo. Fine coverage, slightly different look from the Linux build.
+- **The `claude -p` news feeds** shell out to `claude` on `PATH`. That works when
+  you launch from a terminal with `npm start`. If you ever bundle this as a
+  double-clickable `.app`, GUI processes on macOS do not inherit your shell
+  `PATH`, so `claude` will not be found and both feeds go quiet — harmless
+  (they fail silently by design), but set an absolute path if you need them.
+
+`$SHELL` will be `/bin/zsh` and is used as-is; the `/bin/bash` fallback only
+applies if `$SHELL` is unset.
+
+### Windows
+
+Untested and least likely to work first try: `node-pty` uses ConPTY there, and
+the shell default would need to be `powershell.exe` or `cmd.exe` via
+`config.shell`. Expect to do some work.
+
+## Note on `--no-sandbox` (Linux only)
+
+On Linux, `npm start` passes `--no-sandbox`. On Linux, Electron's `chrome-sandbox` helper
 must be owned by root with mode 4755, which a plain `npm install` cannot do, so
 without the flag the app aborts at launch with:
 
@@ -88,7 +125,7 @@ To run with it enabled anyway:
 ```sh
 sudo chown root:root node_modules/electron/dist/chrome-sandbox
 sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
-npm run start:sandboxed
+npm start
 ```
 
 You must redo this after every `npm install` that replaces Electron.

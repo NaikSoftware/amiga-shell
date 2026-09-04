@@ -63,7 +63,8 @@ const term = new Terminal({
      program output correctly. Set config.fontFamily to put Topaz back if you
      only ever run plain ASCII in here. */
   fontFamily: cfg.fontFamily ||
-    "'Ubuntu Mono', 'DejaVu Sans Mono', 'Noto Sans Mono', monospace",
+    "'Ubuntu Mono', 'DejaVu Sans Mono', Menlo, 'SF Mono', Monaco, " +
+    "Consolas, 'Noto Sans Mono', monospace",
   fontSize: Math.max(8, Math.round(Number(cfg.fontSize) || DEFAULTS.fontSize)),
   lineHeight: 1.05,
   cursorBlink: cfg.cursorBlink !== false,

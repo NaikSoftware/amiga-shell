@@ -5,9 +5,9 @@
   "description": "Amiga Workbench 1.3 styled terminal emulator with a green-phosphor CRT and a hacking-theater HUD.",
   "main": "main.js",
   "scripts": {
-    "start": "electron . --no-sandbox",
+    "start": "node scripts/start.js",
     "test": "node test.js",
-    "start:sandboxed": "electron ."
+    "start:nosandbox": "electron . --no-sandbox"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",
