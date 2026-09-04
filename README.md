@@ -69,10 +69,21 @@ rather than leaving the mic indicator burning.
 
 | Key | Action |
 |---|---|
-| `F9` | Cycle effect intensity: calm / medium / max |
+| `F7` | Hide / show the blue gadget bar (terminal reflows) |
+| `F8` | Shuffle both panel regions to a new layout |
 | `F10` | Toggle the HUD (terminal reflows to full width) |
 | `Ctrl+Shift+C` / `Ctrl+Shift+V` | Copy / paste |
+| `Ctrl+Shift+L` | Shuffle panels |
+| `Ctrl+Shift+B` | Hide / show the gadget bar |
 | `Ctrl+Shift+M` | Run a random HUD mission |
+
+Every other key goes straight to the PTY untouched — including a bare
+`Ctrl-C`. Click the ◇ in any panel header to pin it; a pinned panel survives
+rotation and shuffle. Side column holds 3 pins, the bottom deck 2.
+
+There is no effect-intensity switch: the app runs at one fixed level. The
+individual `effects.*` values in `config.json` still work if you want to
+retune.
 
 Everything else goes to the PTY untouched.
 
@@ -152,3 +163,37 @@ npm start
 ```
 
 You must redo this after every `npm install` that replaces Electron.
+
+
+## What is real and what is theatre
+
+The HUD deliberately mixes both, and the rule is that a real-looking number
+must be real. Anything sourced from the machine is labelled `LIVE`; when a
+source is unavailable the panel says so or shows `----`. It never falls back
+to an invented figure under a real-looking label.
+
+**Real:**
+
+| Panel | Source |
+|---|---|
+| `PACKET LOG` | `/proc/net/dev` + `/proc/net/tcp`/`tcp6` — real interfaces, real established endpoints. Linux only. |
+| `CPU CORES`, `SYSTEM`, `STORAGE`, gauges | `os.cpus()` deltas, `os.freemem()`, `os.loadavg()`, `fs.statfs()`, `/sys/class/thermal`, `nvidia-smi`, battery |
+| `CHRONO` | Real clock, date and world clocks |
+| `WAVEFORM` / `SPECTRUM` | Real microphone, only when `micEqualizer: true` |
+| `WIRE` / `NEWS WATCH` | Live headlines via `claude -p`, geolocated onto the map |
+| Operation strip | Real CPU / memory / disk / GPU when idle |
+| Scenario switching | Sniffed from real Claude Code tool calls in the PTY stream |
+
+**Theatre:** all 19 missions, hex dumps, port scans, DF0 track, telegrams,
+reactor rods, SIGINT waterfall, radar, globe, plasma, DNA, vectors, the
+AmigaDOS log, requesters and Guru Meditations.
+
+One honest edge case: `DEEP SPACE NET` uses real spacecraft, real DSN dish
+names and correct light-time arithmetic, but the distances are constants with
+a little drift. Plausible, not live.
+
+## Debug hatch
+
+`AMIGATERM_DUMP=/path/to/file npm start` appends the **raw PTY stream** to
+that file. Off unless the variable is set. It captures everything the shell
+prints, so treat the output like a terminal recording.
