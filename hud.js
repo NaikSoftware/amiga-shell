@@ -11,6 +11,7 @@ import { setNewsMarkers, setNewsMode, newsMarkerCount, currentNewsMarker } from 
 import { EXTRA_GENERATORS } from "./missions-extra.js";
 import { EXTRA_PANELS, EXTRA_LAYOUTS } from "./panels-extra.js";
 import { CLOCK_PANELS, CLOCK_LAYOUTS } from "./panels-clock.js";
+import { SYS_PANELS, SYS_LAYOUTS, setSys } from "./panels-sys.js";
 
 const $ = id => document.getElementById(id);
 const rnd = (a,b) => a + Math.random()*(b-a);
@@ -269,7 +270,7 @@ let netLines = [];
    shows its simulated label instead of inventing a figure. */
 let sys = null;
 try {
-  window.amiga?.onSys?.((payload) => { sys = payload || null; });
+  window.amiga?.onSys?.((payload) => { sys = payload || null; setSys(sys); });
 } catch (e) { /* no bridge: gauges stay simulated */ }
 try {
   window.amiga?.onNet?.((lines) => { if (Array.isArray(lines)) netLines = lines; });
@@ -353,10 +354,13 @@ const LAYOUTS = {
 Object.assign(GENERATORS, EXTRA_GENERATORS);
 Object.assign(PANELS, EXTRA_PANELS);
 Object.assign(PANELS, CLOCK_PANELS);
+Object.assign(PANELS, SYS_PANELS);
 for (const k in EXTRA_LAYOUTS)
   if (LAYOUTS[k]) LAYOUTS[k] = LAYOUTS[k].concat(EXTRA_LAYOUTS[k]);
 for (const k in CLOCK_LAYOUTS)
   if (LAYOUTS[k]) LAYOUTS[k] = LAYOUTS[k].concat(CLOCK_LAYOUTS[k]);
+for (const k in SYS_LAYOUTS)
+  if (LAYOUTS[k]) LAYOUTS[k] = LAYOUTS[k].concat(SYS_LAYOUTS[k]);
 
 
 const OPNAME = {
