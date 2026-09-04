@@ -13,6 +13,14 @@
       url("fonts/TopazPlus.ttf") format("truetype"),
       url("fonts/Topaz.ttf") format("truetype");
   font-display:swap;
+  /* Topaz's cmap stops at U+00FF and its .notdef is a SOLID FILLED BLOCK.
+     Without this range the browser is free to answer "yes, I have that
+     glyph" with .notdef for every box-drawing and symbol character a modern
+     TUI emits (Claude Code uses U+23FA, U+273B, U+23BF, U+258C...), painting
+     stray blocks that read as duplicate cursors. Constraining the face to
+     what it genuinely covers forces a deterministic fall-through to the next
+     font in the stack. Do not remove. */
+  unicode-range: U+0000-00FF;
 }
 
 :root{

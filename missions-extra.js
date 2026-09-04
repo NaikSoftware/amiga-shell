@@ -301,8 +301,27 @@ export const EXTRA_GENERATORS = {
   reactorRods: () => `ROD ${pick("ABCDEFG")}-${String(num(1,25)).padStart(2,"0")}  ` +
     `IN ${String(num(0,101)).padStart(3)}%  ${String(num(280,1450)).padStart(4)} C  ${pick(["ok  ","warn","SCRAM"])}`,
 
-  amigaError: () => {
-    const e = pick(DOSERR);
-    return `DF0:  ERROR ${e[0]}  ${e[1]}`;
-  }
+  /* An AmigaShell session rather than a wall of identical error lines: real
+     1.x commands against real volumes, with results, and a genuine AmigaDOS
+     error only now and then. A log reads as a machine doing something; a
+     column of "ERROR 2xx" reads as a broken generator. */
+  amigaError: (() => {
+    const VOL = ["SYS:", "DF0:", "DF1:", "WORK:", "RAM:"];
+    const SCRIPT = [
+      () => `${cwd()}> list ${pick(["c", "s", "libs", "devs", "fonts"])}`,
+      () => `  ${pick(["Shell", "Execute", "Assign", "Mount", "SetPatch", "IPrefs"])}` +
+            `${String(Math.floor(rnd(900, 98000))).padStart(9)} rwed`,
+      () => `${cwd()}> info`,
+      () => `  ${pick(VOL).padEnd(6)}${Math.floor(rnd(400, 880))}K  ${Math.floor(rnd(20, 99))}% full`,
+      () => `${cwd()}> copy ${pick(["s/startup-sequence", "c/Dir", "libs/mathtrans.library"])}`,
+      () => `  copied ${Math.floor(rnd(1, 40))} file${Math.random() < .5 ? "s" : ""}`,
+      () => `${cwd()}> assign ${pick(["T:", "ENV:", "CLIPS:"])} ${pick(VOL)}t`,
+      () => `${cwd()}> avail`,
+      () => `  chip ${Math.floor(rnd(180, 512))}K   fast ${Math.floor(rnd(1024, 8192))}K`,
+      () => { const e = pick(DOSERR); return `${pick(VOL)} ERROR ${e[0]}  ${e[1]}`; }
+    ];
+    const cwd = () => `1.${pick(VOL)}`;
+    let i = 0;
+    return () => SCRIPT[i++ % SCRIPT.length]();
+  })()
 };

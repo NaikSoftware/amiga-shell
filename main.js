@@ -55,7 +55,10 @@ function normalizeConfig(raw) {
     bootSequence: typeof r.bootSequence === "boolean" ? r.bootSequence : DEFAULTS.bootSequence,
     hud: typeof r.hud === "boolean" ? r.hud : DEFAULTS.hud,
     // "webgl" (default) or "dom" — the escape hatch when a GPU path misbehaves
-    renderer: r.renderer === "dom" ? "dom" : "webgl",
+    /* Default "dom": the WebGL addon draws a cursor that TUIs have hidden
+       with ?25l, producing a phantom second cursor next to the one the app
+       draws itself. Opt into "webgl" for speed if that doesn't bother you. */
+    renderer: r.renderer === "webgl" ? "webgl" : "dom",
     cursorStyle: ["block", "underline", "bar"].includes(r.cursorStyle) ? r.cursorStyle : "block",
     cursorBlink: typeof r.cursorBlink === "boolean" ? r.cursorBlink : true,
     fontFamily: typeof r.fontFamily === "string" && r.fontFamily.trim() ? r.fontFamily.trim() : null,
@@ -139,6 +142,11 @@ function spawnPty() {
 
   // Straight through. No transform, no buffering, no line handling.
   term.onData((data) => {
+    // Debug hatch: AMIGATERM_DUMP=/path/to/file appends the raw PTY stream.
+    // Off unless the env var is set; the terminal path is untouched either way.
+    if (process.env.AMIGATERM_DUMP) {
+      try { require("fs").appendFileSync(process.env.AMIGATERM_DUMP, data); } catch (e) {}
+    }
     if (win && !win.isDestroyed()) win.webContents.send("pty:data", data);
   });
 

@@ -125,6 +125,44 @@ export function initEffects({ screenEl, getSourceCanvas, config } = {}) {
     }
   }
 
+  /* DOM-renderer glitch path.
+     The WebGL renderer draws a cursor that TUIs have explicitly hidden with
+     ?25l (Claude Code draws its own U+2588 block and hides the real one),
+     which shows up as a phantom second cursor — so the app defaults to the
+     DOM renderer, and there is no canvas to drawImage from. Instead we clone
+     the live text rows into two tinted layers and let the CSS in style.css
+     (.glitchlayer / .screenwrap.glitching) do the slice and chroma split,
+     exactly as prototype.html does. Cheap: two innerHTML writes per burst,
+     nothing at all between bursts. */
+  let domR = null, domC = null;
+
+  function ensureDomLayers() {
+    if (domR) return;
+    domR = document.createElement("div");
+    domC = document.createElement("div");
+    domR.className = "glitchlayer r";
+    domC.className = "glitchlayer c";
+    screenEl.append(domR, domC);
+  }
+
+  function domBurstStart() {
+    const rows = screenEl.querySelector(".xterm-rows");
+    if (!rows) return false;
+    ensureDomLayers();
+    const html = rows.innerHTML;
+    domR.innerHTML = html;
+    domC.innerHTML = html;
+    domR.style.transform = `translate(${rnd(-9, 9).toFixed(1)}px,${rnd(-3, 3).toFixed(1)}px)`;
+    domC.style.transform = `translate(${rnd(-9, 9).toFixed(1)}px,${rnd(-3, 3).toFixed(1)}px)`;
+    return true;
+  }
+
+  function domBurstEnd() {
+    if (!domR) return;
+    domR.innerHTML = "";
+    domC.innerHTML = "";
+  }
+
   function paintChroma(src, amp) {
     if (!src) {
       ctx.globalAlpha = .12;
@@ -201,15 +239,21 @@ export function initEffects({ screenEl, getSourceCanvas, config } = {}) {
     ctx.clearRect(0, 0, W, H);
     endAt = 0;
     screenEl.classList.remove("glitching");
+    domBurstEnd();
   }
 
   function glitch(ms) {
     if (reduced()) return;
     const dur = Math.max(40, Number(ms) || rnd(80, 400));
     endAt = performance.now() + dur;
-    flavor = source() ? pick(FLAVORS) : pick(["slice", "chroma"]);
+    // With no readable canvas (the DOM renderer, the default) clone the live
+    // text rows instead — a real glitch, not the coloured-bar stand-in.
+    const hasCanvas = !!source();
+    const domOk = hasCanvas ? false : domBurstStart();
+    flavor = hasCanvas ? pick(FLAVORS) : pick(["slice", "chroma"]);
     if (flavor === "corrupt") planCorrupt();
     screenEl.classList.add("glitching");
+    if (!hasCanvas && !domOk) { /* nothing to clone yet: CSS-only burst */ }
     if (raf === null) raf = requestAnimationFrame(frame);   // no double loop
   }
 

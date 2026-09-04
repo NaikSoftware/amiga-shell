@@ -11,7 +11,7 @@
     "glitchRate": 8,
     "flicker": 5
   },
-  "renderer": "webgl",
+  "renderer": "dom",
   "cursorStyle": "block",
   "cursorBlink": true
 }
