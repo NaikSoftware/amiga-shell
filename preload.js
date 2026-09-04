@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld("amiga", {
   close: () => ipcRenderer.send("win:close"),
   // headlines pushed from main; renderer never spawns anything itself
   onNews: (cb) => ipcRenderer.on("news:data", (_e, lines) => cb(lines)),
+  onNet: (cb) => ipcRenderer.on("net:data", (_e, lines) => cb(lines)),
   // geolocated headlines for the world map, already parsed and clamped
   onNewsMap: (cb) => ipcRenderer.on("newsmap:data", (_e, markers) => cb(markers))
 });

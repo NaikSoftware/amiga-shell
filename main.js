@@ -9,6 +9,7 @@
 
 const { execFile } = require("child_process");
 const os = require("os");
+const netprobe = require("./netprobe.js");
 
 const fs = require("fs");
 const path = require("path");
@@ -67,6 +68,8 @@ function normalizeConfig(raw) {
     fontFamily: typeof r.fontFamily === "string" && r.fontFamily.trim() ? r.fontFamily.trim() : null,
     // live headline panel: costs tokens per refresh, so it is easy to disable
     typingEffects: typeof r.typingEffects === "boolean" ? r.typingEffects : true,
+    // real /proc/net telemetry in PACKET LOG; false keeps the fake generator
+    realPackets: typeof r.realPackets === "boolean" ? r.realPackets : true,
     news: typeof r.news === "boolean" ? r.news : true,
     newsIntervalMinutes: Number.isFinite(Number(r.newsIntervalMinutes))
       ? Math.max(10, Math.min(720, Number(r.newsIntervalMinutes))) : 30,
@@ -258,6 +261,27 @@ function spawnPty() {
 
   startFeed(config.newsMap, config.newsMapIntervalMinutes, 45, 45000,
     NEWSMAP_PROMPT, "newsmap:data", parseNewsMarkers);
+
+  /* Real network telemetry for the PACKET LOG panel. /proc/net is
+     world-readable so this needs no root; on non-Linux netprobe reports
+     unavailable and the HUD keeps its fake generator. Sampled once a second —
+     fast enough to feel live, slow enough to be free. */
+  let netTimer = null, netPrev = netprobe.readInterfaces(), netAt = Date.now();
+  if (netprobe.AVAILABLE && config.realPackets !== false) {
+    netTimer = setInterval(() => {
+      try {
+        const now = netprobe.readInterfaces();
+        const t = Date.now();
+        const lines = netprobe.format(
+          netprobe.rates(netPrev, now, t - netAt),
+          netprobe.readConnections().filter((c) => c.state === "ESTAB")
+        );
+        netPrev = now; netAt = t;
+        if (win && !win.isDestroyed()) win.webContents.send("net:data", lines);
+      } catch (e) { /* telemetry only; never disturb the terminal */ }
+    }, 1000);
+    netTimer.unref?.();
+  }
 
   term.onData((data) => {
     // Debug hatch: AMIGATERM_DUMP=/path/to/file appends the raw PTY stream.

@@ -113,6 +113,15 @@ function paintGlobe(ctx,w,h,t){
 
 /* Live headlines pushed from main (`claude -p`). Module-level so the panel
    can mount and unmount freely without losing the last fetch. */
+/* Real /proc/net telemetry, pushed from main. Empty until the first sample
+   (and forever on non-Linux), which is exactly when the panel falls back to
+   the fake generator — so PACKET LOG is real where it can be and fiction
+   where it cannot, never a fake claiming to be real. */
+let netLines = [];
+try {
+  window.amiga?.onNet?.((lines) => { if (Array.isArray(lines)) netLines = lines; });
+} catch (e) { /* no bridge: stays empty, generator takes over */ }
+
 let newsLines = ["", "  AWAITING UPLINK...", ""];
 try {
   window.amiga?.onNews?.((lines) => {
@@ -134,7 +143,7 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) =>
 
 const PANELS = {
   news: {title:"WIRE / UKRAINE", kind:"news", rate:15000},
-  nettrace:   {title:"NETTRACE",    kind:"lines",  gen:"portScan",    rate:110},
+  nettrace:   {title:"PACKET LOG",  kind:"net",    gen:"portScan",    rate:900},
   sectordump: {title:"SECTOR DUMP", kind:"lines",  gen:"hexDump",     rate:70},
   neurallink: {title:"NEURAL LINK", kind:"lines",  gen:"cryptoKey",   rate:90},
   daemons:    {title:"DAEMONS",     kind:"lines",  gen:"procList",    rate:220},
@@ -311,7 +320,27 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
       p.gauge = [30,45,20,12];
     }
     if (spec.kind === "disk"){ p.head = 0; p.heat = new Array(80).fill(0); }
-    if (spec.kind === "news"){
+    if (spec.kind === "net"){
+    const paint = () => {
+      const cap = Math.max(3, Math.floor(bd.clientHeight / 18));
+      let rows, live;
+      if (netLines.length){
+        rows = netLines.slice(0, cap); live = true;
+      } else {
+        // no /proc/net (macOS, or disabled): keep the panel alive with fiction
+        p.lines.push(GENERATORS[spec.gen]());
+        while (p.lines.length > cap) p.lines.shift();
+        rows = p.lines; live = false;
+      }
+      hd.firstChild.textContent = live ? "PACKET LOG  LIVE" : "PACKET LOG";
+      bd.innerHTML = rows.map((l, i) =>
+        i === rows.length - 1 ? `<span class="hot">${esc(l)}</span>` : esc(l)).join("\n");
+    };
+    paint();
+    p.timer = setInterval(paint, spec.rate);
+  }
+
+  if (spec.kind === "news"){
     const paint = () => {
       const cap = Math.max(2, Math.floor(bd.clientHeight / 18));
       bd.innerHTML = newsLines.slice(0, cap)

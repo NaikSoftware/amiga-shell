@@ -325,11 +325,88 @@ async function hudTests() {
   }
 }
 
+// ------------------------------------------------------------- netprobe ----
+// Real parsing against fixed /proc fixtures: byte order, counter wrap and
+// hostile input are all things that would silently produce garbage on screen.
+
+async function testNetprobe() {
+  const net = require("./netprobe.js");
+
+  await test("hexToIPv4 decodes /proc little-endian order", () => {
+    assert.strictEqual(net.hexToIPv4("0100007F"), "127.0.0.1");
+    assert.strictEqual(net.hexToIPv4("0F02000A"), "10.0.2.15");
+  });
+
+  await test("parseProcNet reads remote addr/port/state, skips listeners", () => {
+    const fixture = [
+      "  sl  local_address rem_address   st tx_queue rx_queue",
+      "   0: 0100007F:235A 00000000:0000 0A 00000000:00000000",
+      "   1: 0F02000A:B3C2 5DB8D822:01BB 01 00000000:00000000"
+    ].join("\n");
+    const rows = net.parseProcNet(fixture, false);
+    assert.strictEqual(rows.length, 1, "the :0000 listener must be dropped");
+    assert.strictEqual(rows[0].addr, "34.216.184.93");
+    assert.strictEqual(rows[0].port, 443);
+    assert.strictEqual(rows[0].state, "ESTAB");
+  });
+
+  await test("parseNetDev pulls rx/tx packet and byte counters", () => {
+    const fixture = [
+      "Inter-|   Receive                     |  Transmit",
+      " face |bytes packets errs drop fifo frame compressed multicast|bytes packets errs drop fifo colls carrier compressed",
+      "    lo:  100  10 0 0 0 0 0 0  200  20 0 0 0 0 0 0",
+      " eth0:  999  50 0 0 0 0 0 0  888  40 0 0 0 0 0 0"
+    ].join("\n");
+    const d = net.parseNetDev(fixture);
+    assert.strictEqual(d.eth0.rxPkts, 50);
+    assert.strictEqual(d.eth0.txPkts, 40);
+    assert.strictEqual(d.eth0.rxBytes, 999);
+    assert.strictEqual(d.eth0.txBytes, 888);
+  });
+
+  await test("rates ignores loopback and drops counter wrap", () => {
+    const prev = { lo: {rxBytes:0,rxPkts:0,txBytes:0,txPkts:0},
+                   eth0:{rxBytes:100,rxPkts:10,txBytes:100,txPkts:10} };
+    const now  = { lo: {rxBytes:9,rxPkts:9,txBytes:9,txPkts:9},
+                   eth0:{rxBytes:200,rxPkts:20,txBytes:200,txPkts:20} };
+    const r = net.rates(prev, now, 1000);
+    assert.strictEqual(r.length, 1, "lo must be excluded");
+    assert.strictEqual(r[0].rx, 10);
+
+    // a wrapped (decreasing) counter must vanish, not render as negative
+    const wrapped = net.rates({ eth0:{rxBytes:500,rxPkts:50,txBytes:500,txPkts:50} },
+                              { eth0:{rxBytes:1,  rxPkts:1, txBytes:1,  txPkts:1} }, 1000);
+    assert.strictEqual(wrapped.length, 0);
+  });
+
+  await test("format collapses duplicate endpoints and fits the column", () => {
+    const conns = [
+      {addr:"1.2.3.4", port:443, state:"ESTAB"},
+      {addr:"1.2.3.4", port:443, state:"ESTAB"},
+      {addr:"5.6.7.8", port:80,  state:"ESTAB"}
+    ];
+    const lines = net.format([], conns);
+    assert.strictEqual(lines.length, 2, "identical endpoints collapse to one row");
+    assert.ok(lines.some((l) => /x2/.test(l)), "the collapsed row shows a count");
+    for (const l of lines) assert.ok(l.length <= 40, `too wide: ${l}`);
+  });
+
+  await test("parsers never throw on garbage", () => {
+    for (const junk of ["", "\n\n", "not a table", "a:b:c", "\0".repeat(1000)]) {
+      net.parseProcNet(junk, false);
+      net.parseProcNet(junk, true);
+      net.parseNetDev(junk);
+    }
+    net.format([], []);
+  });
+}
+
 // ---------------------------------------------------------------- runner ----
 
 (async () => {
   await configTests();
   await hudTests();
+  await testNetprobe();
 
   console.log(`\n${"-".repeat(52)}`);
   if (failures.length) {
