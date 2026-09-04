@@ -12,6 +12,7 @@ import { EXTRA_GENERATORS } from "./missions-extra.js";
 import { EXTRA_PANELS, EXTRA_LAYOUTS } from "./panels-extra.js";
 import { CLOCK_PANELS, CLOCK_LAYOUTS } from "./panels-clock.js";
 import { SYS_PANELS, SYS_LAYOUTS, setSys } from "./panels-sys.js";
+import { WIDE_PANELS, BOTTOM_LAYOUTS } from "./panels-wide.js";
 
 const $ = id => document.getElementById(id);
 const rnd = (a,b) => a + Math.random()*(b-a);
@@ -301,9 +302,26 @@ const BROKEN = new Set();
 /* Panels the user pinned. A pinned panel survives every layout change, the
    ambient rotation and a manual shuffle — it is unmounted only by unpinning
    it or turning the HUD off. Capped so a wall of pins cannot squeeze the
-   rotating panels out of the column entirely. */
+   rotating panels out of the region entirely.
+
+   The cap is PER REGION, not global: the bottom bar shows three panels at a
+   time, so a global cap of 3 spent down there would freeze the whole bar
+   while still leaving the side column free — and the reverse, three side
+   pins, would lock the bottom bar out of pinning anything at all. Two of
+   the bottom bar's three slots is the most that can be nailed down; the
+   side column keeps the 3 it always had. */
 const PINNED = new Set();
-const MAX_PINNED = 3;
+const MAX_PINNED = {side: 3, bottom: 2};
+
+/* One key, one region. A spec marked `wide` belongs to the bottom bar and
+   nothing else; everything else is side-column only. Keeping them exclusive
+   is what stops a pin dragging a 290px-column panel into a 500px slot. */
+const regionOf = key => (PANELS[key] && PANELS[key].wide) ? "bottom" : "side";
+const pinsIn = region => {
+  let n = 0;
+  PINNED.forEach(k => { if (regionOf(k) === region) n++; });
+  return n;
+};
 
 /* Gauge sources, in priority order. Each returns {label,value,text} when a
    genuinely real number exists, or null to fall back to the simulated bar.
@@ -363,10 +381,26 @@ for (const k in SYS_LAYOUTS)
   if (LAYOUTS[k]) LAYOUTS[k] = LAYOUTS[k].concat(SYS_LAYOUTS[k]);
 
 
-const OPNAME = {
-  idle:"STANDBY", think:"NEURAL LINK", read:"SECTOR DUMP 0x4A2F",
-  edit:"PATCHING BINARY", bash:"INJECTING PAYLOAD", net:"UPLINK ACTIVE", task:"SPAWNING DAEMON"
-};
+/* The bottom bar's own panel set and its rotation table, merged the same way
+   as every other panels-*.js. The `wide` flag on each spec is what binds them
+   to the bottom region — see regionOf(). */
+Object.assign(PANELS, WIDE_PANELS);
+
+/* ── operation strip, idle behaviour ───────────────────────────────────
+   While an operation runs the strip tracks that operation and nothing here
+   applies. The rest of the time it used to ramp 0->100 forever and mean
+   absolutely nothing, which is exactly the kind of invented motion the rest
+   of this file goes out of its way to avoid. Now it reads a real number off
+   sysprobe and rotates slowly through whichever ones exist. No telemetry
+   means no motion at all — parked at zero, labelled STANDBY. */
+export const OP_METRICS = [
+  (s) => s && s.cpu && s.cpu.agg != null ? {label:"CPU LOAD", pct:s.cpu.agg} : null,
+  (s) => s && s.mem && s.mem.usedPct != null ? {label:"MEMORY", pct:s.mem.usedPct} : null,
+  (s) => s && s.fs && s.fs.root && s.fs.root.usedPct != null
+    ? {label:"DISK " + (s.fs.root.path || "/"), pct:s.fs.root.usedPct} : null,
+  (s) => s && s.gpu && s.gpu.util != null ? {label:"GPU", pct:s.gpu.util} : null
+];
+const OP_SWAP_MS = 8000;      // slow enough to read, fast enough to be alive
 
 /* a tool call may kick off a matching mission — see the gate in initHud */
 /* Each scenario draws from a pool so the same tool call doesn't always
@@ -461,10 +495,42 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
   let cfg = normCfg(config);
   let running = false, raf = 0, t0 = performance.now(), clock = 0;
   let typingBoost = 0, lastType = 0;
-  let scenarioKey = "idle", load = .35, opPct = 0, lastLayout = 0, lastMission = 0, lastSniff = 0;
+  let scenarioKey = "idle", load = .35, opPct = 0, lastMission = 0, lastSniff = 0;
   const timers = [];
-  const mounted = new Map();
   const openReqs = new Set();
+
+  /* ── regions ────────────────────────────────────────────────────────
+     Panels live in two places: the side column and the bottom bar. Same
+     registry, same builder, same rotation, same pin gadget — only the host
+     element, the layout table and the hold timer differ, so everything below
+     takes a region object instead of reaching for hudEl directly.
+
+     The bar holds two decks side by side: the mission runner's own DOM and
+     the rotating bottom region. index.html ships both; build them if it does
+     not, the same way missions.js copes with missing markup. */
+  function deckEl(cls, open){
+    let d = missionBarEl.querySelector(":scope > .deck." + cls);
+    if (!d){
+      d = document.createElement("div");
+      d.className = "deck " + cls;
+      missionBarEl.appendChild(d);
+    }
+    d.dataset.open = open;
+    return d;
+  }
+  const missionDeck = deckEl("mission", "0");   // must come first: it is left-most
+  const bottomDeck  = deckEl("panels", "1");
+
+  const REGIONS = {
+    side:   {name:"side",   el:hudEl,      layouts:LAYOUTS,        mounted:new Map(), lastLayout:0},
+    bottom: {name:"bottom", el:bottomDeck, layouts:BOTTOM_LAYOUTS, mounted:new Map(), lastLayout:0}
+  };
+  const eachRegion = (fn) => { fn(REGIONS.side); fn(REGIONS.bottom); };
+
+  /* True only while a scripted operation owns the whole bar. NEWS WATCH sets
+     the deck to "news", which is the map alone at 40% — the bottom panels
+     keep their slots alongside it. */
+  const barBusy = () => missionDeck.dataset.open === "1";
 
   // the operation strip is index.html's, not ours — write it if it exists,
   // shrug if it does not. The window title belongs to renderer.js (real cwd),
@@ -484,6 +550,7 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
     const spec = PANELS[key];
     const el = document.createElement("div");
     el.className = "panel";
+    el.dataset.panel = key;            // which panel this is, for the eye and for tests
     if (spec.grow === 0) el.dataset.grow = "0";
     if (spec.h) el.style.flexBasis = spec.h + "px";
 
@@ -493,10 +560,11 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
       `<span class="pin" role="button" tabindex="0" title="Pin this panel">` +
       `${PINNED.has(key) ? "\u25C6" : "\u25C7"}</span>`;
     const pinEl = hd.querySelector(".pin");
+    const region = regionOf(key);
     const togglePin = () => {
       if (PINNED.has(key)) PINNED.delete(key);
-      else if (PINNED.size < MAX_PINNED) PINNED.add(key);
-      else return;                       // at the cap: unpin something first
+      else if (pinsIn(region) < MAX_PINNED[region]) PINNED.add(key);
+      else return;                       // at this region's cap: unpin first
       pinEl.textContent = PINNED.has(key) ? "\u25C6" : "\u25C7";
       el.classList.toggle("pinned", PINNED.has(key));
       pinEl.title = PINNED.has(key) ? "Unpin this panel" : "Pin this panel";
@@ -581,35 +649,59 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
     p.canvas.height = Math.max(40, Math.floor(r.height));
   }
 
-  function setLayout(keys){
-    // pinned panels are always part of the layout, and lead it so their
-    // position does not jump around as the rotating panels change
-    keys = [...new Set([...PINNED, ...keys])];
-    for (const [k,p] of mounted){
-      if (!keys.includes(k)){
-        clearInterval(p.timer);
-        p.el.classList.add("closing");
-        setTimeout(() => p.el.remove(), 160);
-        mounted.delete(k);
-      }
+  /* Animated removal. Also the only place a panel timer is cleared, so a
+     panel can never leave the DOM with its interval still running. */
+  function unmount(rg, key){
+    const p = rg.mounted.get(key);
+    if (!p) return;
+    clearInterval(p.timer);
+    rg.mounted.delete(key);
+    p.el.classList.add("closing");
+    setTimeout(() => p.el.remove(), 160);
+  }
+
+  /* Immediate, unanimated, and it ignores pins — F10 off means gone. */
+  function teardown(rg){
+    for (const k of [...rg.mounted.keys()]){
+      clearInterval(rg.mounted.get(k).timer);
+      rg.mounted.get(k).el.remove();
+      rg.mounted.delete(k);
     }
+  }
+
+  function setLayout(rg, keys){
+    // This region's pinned panels are always part of its layout, and lead it
+    // so their position does not jump around as the rotating panels change.
+    // A layout table typo, a retired panel or a key belonging to the other
+    // region is dropped here rather than throwing on mount.
+    keys = [...new Set([...PINNED, ...keys])]
+      .filter(k => PANELS[k] && !BROKEN.has(k) && regionOf(k) === rg.name);
+    for (const k of [...rg.mounted.keys()]) if (!keys.includes(k)) unmount(rg, k);
     keys.forEach(k => {
-      if (!mounted.has(k)){
+      if (!rg.mounted.has(k)){
         const p = buildPanel(k);
-        mounted.set(k, p);
-        hudEl.appendChild(p.el);
+        rg.mounted.set(k, p);
+        rg.el.appendChild(p.el);
         sizeCanvas(p);
       }
     });
-    keys.forEach(k => hudEl.appendChild(mounted.get(k).el));
+    keys.forEach(k => rg.el.appendChild(rg.mounted.get(k).el));
   }
 
-  function sizeAll(){ mounted.forEach(sizeCanvas); missions.resize(); }
+  function sizeAll(){
+    eachRegion(rg => rg.mounted.forEach(sizeCanvas));
+    missions.resize();
+  }
+
+  /* The op strip label. A running operation owns it for as long as it runs;
+     the rest of the time opTick writes the current real reading there. */
+  let opLabelHold = null;
 
   function setOp(label, crit){
+    opLabelHold = label || null;
     if (!op.label) return;
-    op.label.textContent = label || OPNAME[scenarioKey];
     op.label.classList.toggle("crit", !!crit);
+    if (label) op.label.textContent = label;
   }
 
   /* Minimum time a set of panels stays on screen, no matter what the stream
@@ -620,26 +712,51 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
      stream immediately; only the PANELS are held. */
   const LAYOUT_HOLD_MS = 45000;
 
+  /* Re-pick one region's layout, gated by that region's own hold timer.
+     `force` is the explicit shuffle and the bottom bar taking its slots back
+     after an operation — neither should be swallowed by the hold. Returns
+     true if the layout actually changed. */
+  function relayout(rg, now, force){
+    if (rg === REGIONS.bottom && barBusy()) return false;   // an operation owns the bar
+    if (!force && now - rg.lastLayout < LAYOUT_HOLD_MS && rg.mounted.size) return false;
+    rg.lastLayout = now;
+    setLayout(rg, pick(rg.layouts[scenarioKey] || rg.layouts.idle));
+    return true;
+  }
+
   function setScenario(key){
     const next = key in LAYOUTS ? key : "idle";
     const now = Date.now();
-    const changed = next !== scenarioKey;
     scenarioKey = next;
     load = scenarioKey === "idle" ? .35 : 1;
     if (!missions.active()) setOp(null, false);
 
-    // hold the panels even across a scenario change
-    if (now - lastLayout < LAYOUT_HOLD_MS && mounted.size) return;
-    lastLayout = now;
-    setLayout(pick(LAYOUTS[scenarioKey]));
-    if (scenarioKey !== "idle" && !missions.active() && Math.random() < .25)
+    // hold the panels even across a scenario change — both regions, each on
+    // its own timer, so the column and the bar do not turn over in lockstep
+    let changed = false;
+    eachRegion(rg => { if (relayout(rg, now)) changed = true; });
+    // rare on purpose, and behind the shared cooldown in spawnRequester
+    if (changed && scenarioKey !== "idle" && !missions.active() && Math.random() < .06)
       setTimeout(spawnRequester, rnd(300,1400));
   }
 
-  /* ── requesters ── */
+  /* ── requesters ──────────────────────────────────────────────────────
+     Three unrelated sources used to fire these — an ambient timer, every
+     non-idle scenario change, and the end of an operation — and none of them
+     knew about the others, so they stacked into bursts. One shared leash
+     now: an ambient popup needs REQ_COOLDOWN_MS of quiet behind it, whatever
+     produced the last one. A mission's closing requester is punctuation on
+     something the user triggered, so it ignores the leash — but it still
+     stamps it, so nothing ambient piles on straight after. */
+  const REQ_COOLDOWN_MS = 90000;
+  let lastReq = 0;
 
   function spawnRequester(forceAlert){
     if (!running || openReqs.size >= 2) return;
+    const now = Date.now();
+    // undefined => ambient. A mission passes 0 or 2 and is never held back.
+    if (forceAlert === undefined && now - lastReq < REQ_COOLDOWN_MS) return;
+    lastReq = now;
     const r = forceAlert === 2 || (forceAlert !== 0 && Math.random() < .3) ? pick(ALERTS) : pick(REQUESTERS);
     const el = document.createElement("div");
     el.className = "requester" + (r.alert ? " alert" : "");
@@ -661,21 +778,45 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
     setTimeout(close, rnd(3800, 7000));
   }
 
+  /* The mission runner keeps its own DOM and gets its own deck. It is handed
+     that deck as its "bar", so every `dataset.open` it writes lands on the
+     deck rather than on the whole strip — which is how the rotating bottom
+     region can hold the other half of the strip at the same time. */
   const missions = initMissions({
-    missionBarEl, effects: fx, spawnRequester, setOp, onResize: sizeAll
+    missionBarEl: missionDeck, effects: fx, spawnRequester, setOp, onResize: sizeAll
   });
+
+  /* Bottom region vs. the mission runner. While an operation owns the bar the
+     rotating panels step aside completely — unmounted, timers cleared, zero
+     cost — and take their slots back on the next tick afterwards. Pins are in
+     the same PINNED set, so a pinned wide panel comes straight back with them.
+     Exactly the cooperation newsWatch() already had, applied to the panels. */
+  function bottomTick(){
+    if (barBusy()){
+      // teardown, not setLayout([]): a pin must not keep a hidden panel and
+      // its interval alive underneath a running operation
+      if (REGIONS.bottom.mounted.size) teardown(REGIONS.bottom);
+      return;
+    }
+    if (!REGIONS.bottom.mounted.size) relayout(REGIONS.bottom, Date.now(), true);
+  }
 
   /* ── NEWS WATCH ──────────────────────────────────────────────────────
      What the map shows when no scripted operation is running, so the bar
      is useful rather than only theatrical.
 
-     The mission runner owns the bar — it sets data-open itself and closes
+     The mission runner owns its deck — it sets data-open itself and closes
      it 1.8s after an operation finishes. We never fight it: while a
      mission is active we hand the map back untouched, and afterwards we
-     re-open the bar on the next tick. The header says LIVE because this
-     is the one real thing on the panel. */
-  const bar = (id) => missionBarEl.querySelector("#" + id)
-                   || missionBarEl.querySelector(`[data-m="${id}"]`);
+     re-open the deck on the next tick. The header says LIVE because this
+     is the one real thing on the panel.
+
+     The one difference now: news mode opens the deck as "news" rather than
+     "1", which is the map alone at 40% of the bar. The rotating panels keep
+     their slots next to it — a live headline is not a reason to blank the
+     machine readouts. Only a scripted operation takes the whole strip. */
+  const bar = (id) => missionDeck.querySelector("#" + id)
+                   || missionDeck.querySelector(`[data-m="${id}"]`);
   const mapEls = {panel: bar("mapPanel"), title: bar("mapTitle"), sub: bar("mapSub")};
   let newsOwned = false;
   const NEWS_TITLE = "NEWS WATCH \u25CF LIVE";     // LIVE: this one is not theater
@@ -686,19 +827,19 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
       if (!newsOwned) return;
       newsOwned = false;
       setNewsMode(false);
-      // a running mission closes the bar itself when it is done with it
-      if (!busy){ missionBarEl.dataset.open = "0"; sizeAll(); }
+      // a running mission closes its deck itself when it is done with it
+      if (!busy){ missionDeck.dataset.open = "0"; sizeAll(); }
       return;
     }
     if (!newsOwned){
       newsOwned = true;
       setNewsMode(true);
       mapEls.panel?.classList.remove("crit");     // not an alert, it is news
-      setTimeout(sizeAll, 240);                   // after the bar transition
+      setTimeout(sizeAll, 240);                   // after the deck transition
     }
     // re-assert: the mission runner's delayed close can land after we opened
-    if (missionBarEl.dataset.open !== "1"){
-      missionBarEl.dataset.open = "1";
+    if (missionDeck.dataset.open !== "news"){
+      missionDeck.dataset.open = "news";
       setTimeout(sizeAll, 240);
     }
     // header is rewritten only when it actually changes — this ticks every
@@ -729,34 +870,68 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
 
   /* ── loops ── */
 
+  /* One painter must never be able to kill the render loop. A panel that
+     throws is unmounted, unpinned and never mounted again this session — in
+     either region — rather than taking the whole HUD, and the terminal, down
+     with it. This is not hypothetical: a painter referencing an undefined
+     constant threw on its first frame and froze the entire HUD until it was
+     found. */
+  function paintPanel(rg, p){
+    if (p.spec.kind !== "canvas" || !p.canvas.width) return;
+    try {
+      p.spec.paint(p.ctx, p.canvas.width, p.canvas.height, clock, load, micsource);
+    } catch (e) {
+      console.warn("[amigaterm] panel", p.key, "threw; retiring it:", e);
+      BROKEN.add(p.key);
+      PINNED.delete(p.key);          // a retired panel must not be pinned back in
+      try { unmount(rg, p.key); } catch (_) {}
+      return;
+    }
+    if (p.hdText){
+      // says MIC LIVE only while bytes are genuinely arriving
+      const s = micsource.live() ? p.titleLive : p.spec.title;
+      if (p.hdText.textContent !== s) p.hdText.textContent = s;
+    }
+  }
+
   function frame(now){
     clock = (now - t0)/1000;
-    mounted.forEach(p => {
-      if (p.spec.kind === "canvas" && p.canvas.width){
-        /* One painter must never be able to kill the render loop. A panel
-           that throws is unmounted and never mounted again this session,
-           rather than taking the whole HUD — and the terminal — down with
-           it. This is not hypothetical: a painter referencing an undefined
-           constant threw on its first frame and froze the entire HUD until
-           it was found. */
-        try {
-          p.spec.paint(p.ctx, p.canvas.width, p.canvas.height, clock, load, micsource);
-        } catch (e) {
-          console.warn("[amigaterm] panel", p.key, "threw; retiring it:", e);
-          BROKEN.add(p.key);
-          try { unmount(p); mounted.delete(p.key); } catch (_) {}
-          return;
-        }
-        if (p.hdText){
-          // says MIC LIVE only while bytes are genuinely arriving
-          const s = micsource.live() ? p.titleLive : p.spec.title;
-          if (p.hdText.textContent !== s) p.hdText.textContent = s;
-        }
-      }
-    });
+    eachRegion(rg => rg.mounted.forEach(p => paintPanel(rg, p)));
     try { missions.paint(clock); }
     catch (e) { console.warn("[amigaterm] mission painter threw:", e); }
     raf = requestAnimationFrame(frame);
+  }
+
+  /* ── operation strip ── */
+
+  let opIdx = 0, lastOpSwap = 0;
+
+  function opTick(){
+    if (missions.active()){
+      const total = missions.total();
+      opPct = Math.min(100, opPct + 100/(total/180));
+      if (opPct >= 100) opPct = 0;
+    } else {
+      const avail = [];
+      for (const f of OP_METRICS){ const m = f(sys); if (m) avail.push(m); }
+      if (!avail.length){
+        // no readable telemetry: park it. The old fallback here was a bar
+        // ramping for no reason, which is worse than an empty one.
+        opPct = 0;
+        if (!opLabelHold && op.label) op.label.textContent = "STANDBY";
+      } else {
+        const now = Date.now();
+        if (now - lastOpSwap > OP_SWAP_MS){ lastOpSwap = now; opIdx++; }
+        const m = avail[opIdx % avail.length];
+        opPct = Math.max(0, Math.min(100, m.pct));
+        if (!opLabelHold && op.label) op.label.textContent = m.label;
+      }
+    }
+    missions.progress(opPct);
+    if (op.fill) op.fill.style.width = opPct.toFixed(0)+"%";
+    // was random hex every 180ms; now it is the number the bar is showing,
+    // and blank when there is no number to show
+    if (op.hex) op.hex.textContent = opPct > 0 ? Math.round(opPct)+"%" : "";
   }
 
   const every = (ms, fn) => timers.push(setInterval(fn, ms));
@@ -765,30 +940,22 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
     if (running) return;
     running = true;
     hudEl.hidden = false;
+    // the bar is permanent furniture now: it holds the bottom region, not
+    // only the occasional operation, so it opens with the HUD and closes with it
+    missionBarEl.dataset.open = "1";
     t0 = performance.now();
+    eachRegion(rg => { rg.lastLayout = 0; });
     setScenario("idle");
-    lastLayout = 0;
     missions.start();
     sizeAll();
     raf = requestAnimationFrame(frame);
 
-    every(180, () => {                                   // operation strip
-      if (missions.active()){
-        const total = missions.total();
-        opPct = Math.min(100, opPct + 100/(total/180));
-      } else {
-        opPct = load > .5 ? Math.min(100, opPct + rnd(1.5,7)) : opPct + .4;
-      }
-      if (opPct >= 100) opPct = 0;
-      missions.progress(opPct);
-      if (op.fill) op.fill.style.width = opPct.toFixed(0)+"%";
-      if (op.hex) op.hex.textContent = `${hex(4)} ${hex(4)} ${hex(4)}`;
-    });
+    every(180, opTick);                                  // operation strip
 
     every(130, () => {
       if (typingBoost > 0) typingBoost = Date.now() - lastType > 400
         ? Math.max(0, typingBoost - .08) : typingBoost;                                   // gauges + DF0 head
-      mounted.forEach(p => {
+      eachRegion(rg => rg.mounted.forEach(p => {
         if (p.spec.kind === "gauges"){
           p.gauge.forEach((v,i) => {
             // Real reading if sysprobe has one, otherwise the simulated bar.
@@ -820,22 +987,24 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
           for (let r = 0; r < 8; r++) out += p.heat.slice(r*10,(r+1)*10).map(ch).join(" ") + "\n";
           p.body.innerHTML = out + `<span class="hot">HEAD ${String(p.head).padStart(2,"0")}  ${hex(4)}</span>`;
         }
-      });
+      }));
     });
 
     /* Ambient rotation. Deliberately slow and probabilistic: a panel should
        feel like equipment someone left running, not a slideshow. Checking
        every 26s at 30% odds puts the mean dwell near 90s, and the geometric
        distribution means some layouts stick around for many minutes — which
-       is the point. Do not speed this up to make it look busier. */
+       is the point. Do not speed this up to make it look busier.
+
+       Both regions roll their own dice against their own hold timer, so the
+       column and the bar drift apart instead of turning over together. */
     every(30000, () => {
       if (missions.active()) return;
       const now = Date.now();
-      if (now - lastLayout < LAYOUT_HOLD_MS) return;      // respect the hold
       if (scenarioKey !== "idle" && now - lastSniff > 45000){
         scenarioKey = "idle"; load = .35;
       }
-      if (Math.random() < .30){ lastLayout = now; setLayout(pick(LAYOUTS[scenarioKey])); }
+      eachRegion(rg => { if (Math.random() < .30) relayout(rg, now); });
     });
 
     /* Ambient operations. Without this the map and the missile arcs only
@@ -851,8 +1020,14 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
     });
 
     every(600, newsWatch);                               // map's idle mode
+    every(600, bottomTick);                              // bar hand-off
 
-    every(9000,  () => { if (Math.random() < .18 + cfg.glitchRate/100*.5) spawnRequester(); });
+    /* Ambient requesters. p=0.12 every 30s puts the mean near four minutes,
+       and the cooldown in spawnRequester keeps that from clustering. Kept
+       probabilistic rather than scheduled: a fault that arrives on the dot
+       reads as a cron job, not a fault. Tuned for the one fixed effects
+       level — there is no intensity slider to scale off any more. */
+    every(30000, () => { if (Math.random() < .12) spawnRequester(); });
     every(20000, () => { if (Math.random() < cfg.glitchRate/100*.12) fx.guru(); });
     addEventListener("resize", sizeAll);
   }
@@ -867,13 +1042,16 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
     micsource.stop();          // F10 off must not leave the mic open
     newsOwned = false;
     setNewsMode(false);
-    setLayout([]);                                       // clears panel timers
-    mounted.forEach(p => p.el.remove());
-    mounted.clear();
+    eachRegion(teardown);      // both regions, pins included: no orphan intervals
     openReqs.forEach(el => el.remove());
     openReqs.clear();
     hudEl.hidden = true;
-    if (op.label) op.label.textContent = "STANDBY";
+    missionBarEl.dataset.open = "0";
+    missionDeck.dataset.open = "0";
+    opLabelHold = null;
+    if (op.label){ op.label.textContent = "STANDBY"; op.label.classList.remove("crit"); }
+    if (op.fill) op.fill.style.width = "0%";
+    if (op.hex) op.hex.textContent = "";
   }
 
   if (!config || config.hud !== false) start();
@@ -896,13 +1074,15 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
     },
     setEnabled(on){ on ? start() : stop(); },
     setConfig(c){ cfg = normCfg(c); },
-    /* Manual shuffle. Re-picks the current scenario's layout and resets the
-       hold timer, so an explicit shuffle is never swallowed by the 45s
-       minimum that stops automatic switching looking like a slideshow. */
+    /* Manual shuffle. Re-picks BOTH regions' layouts and resets both hold
+       timers, so an explicit shuffle is never swallowed by the 45s minimum
+       that stops automatic switching looking like a slideshow. The bottom
+       region declines while an operation owns the bar and re-picks when it
+       gets its slots back. */
     shuffle(){
       if (!running) return;
-      lastLayout = Date.now();
-      setLayout(pick(LAYOUTS[scenarioKey] || LAYOUTS.idle));
+      const now = Date.now();
+      eachRegion(rg => relayout(rg, now, true));
     },
     runMission(key){ if (running && MISSION_KEYS.includes(key)) missions.run(key); },
     missionKeys: MISSION_KEYS

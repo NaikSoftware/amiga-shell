@@ -43,35 +43,62 @@ export function paintCores(ctx, w, h) {
 
   if (!coreSmooth || coreSmooth.length !== cores.length)
     coreSmooth = new Float32Array(cores.length);
+  for (let i = 0; i < cores.length; i++) {
+    const v = Number.isFinite(cores[i]) ? cores[i] : 0;
+    coreSmooth[i] += (v - coreSmooth[i]) * 0.4;
+  }
 
   ctx.clearRect(0, 0, w, h);
   ctx.textBaseline = "top";
-
-  const n = cores.length;
-  const padL = 8, padR = 8, top = 18, bottom = 14;
-  const barH = Math.max(3, Math.floor((h - top - bottom) / n) - 2);
-  const barW = w - padL - padR - 34;
-
   ctx.font = "10px monospace";
   ctx.fillStyle = DIM;
   const agg = sys.cpu.agg;
-  ctx.fillText(`CPU  ${agg == null ? "----" : Math.round(agg) + "%"}  ${n} THREADS`, padL, 4);
+  ctx.fillText(`CPU ${agg == null ? "----" : Math.round(agg) + "%"}  ${cores.length} THREADS`, 8, 4);
 
+  const colour = (v) => (v > 85 ? WARN : v > 55 ? HI : AMBER);
+
+  /* Two layouts. The column is tall and narrow, so cores stack as rows; the
+     bottom deck is wide and short, where 12 stacked rows collapse into an
+     unreadable smear — there, cores stand as vertical bars side by side.
+     Threshold is on aspect, not a magic width, so it holds on any window. */
+  if (w > h * 2.2) {
+    const padL = 8, padR = 8, top = 18, base = h - 12;
+    const n = cores.length;
+    const slot = (w - padL - padR) / n;
+    const bw = Math.max(2, Math.floor(slot) - 2);
+    const height = base - top;
+    for (let i = 0; i < n; i++) {
+      const x = padL + i * slot;
+      const v = coreSmooth[i];
+      ctx.fillStyle = DEEP;
+      ctx.fillRect(x, top, bw, height);
+      const bh = Math.max(1, height * v / 100);
+      ctx.fillStyle = colour(v);
+      ctx.fillRect(x, top + height - bh, bw, bh);
+      if (slot >= 14) {                       // only label when it fits
+        ctx.fillStyle = DIM;
+        ctx.fillText(pad2(i), x, base + 1);
+      }
+    }
+    return;
+  }
+
+  const padL = 8, padR = 8, top = 18, bottom = 6;
+  const n = cores.length;
+  const barH = Math.max(3, Math.floor((h - top - bottom) / n) - 2);
+  const barW = w - padL - padR - 40;
   for (let i = 0; i < n; i++) {
-    const v = Number.isFinite(cores[i]) ? cores[i] : 0;
-    coreSmooth[i] += (v - coreSmooth[i]) * 0.4;
     const y = top + i * (barH + 2);
     if (y + barH > h - 2) break;
-
+    const v = coreSmooth[i];
     ctx.fillStyle = DEEP;
-    ctx.fillRect(padL + 20, y, barW, barH);
-    ctx.fillStyle = coreSmooth[i] > 85 ? WARN : coreSmooth[i] > 55 ? HI : AMBER;
-    ctx.fillRect(padL + 20, y, Math.max(1, barW * coreSmooth[i] / 100), barH);
-
+    ctx.fillRect(padL + 18, y, barW, barH);
+    ctx.fillStyle = colour(v);
+    ctx.fillRect(padL + 18, y, Math.max(1, barW * v / 100), barH);
     ctx.fillStyle = DIM;
     ctx.fillText(pad2(i), padL, y - 1);
     ctx.fillStyle = AMBER;
-    ctx.fillText(String(Math.round(coreSmooth[i])).padStart(3), w - padR - 20, y - 1);
+    ctx.fillText(String(Math.round(v)).padStart(3), w - padR - 22, y - 1);
   }
 }
 

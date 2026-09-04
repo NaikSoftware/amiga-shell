@@ -45,43 +45,46 @@
       <div class="hud" id="hud"></div>
     </div>
 
+    <!-- The bottom bar is two decks: the mission runner's own instruments,
+         and the rotating bottom panel region hud.js fills. One deck at a
+         time during an operation; side by side during NEWS WATCH. -->
     <div class="missionbar" id="missionbar" data-open="0">
-      <div class="panel map" id="mapPanel">
-        <div class="panel-hd"><span id="mapTitle">GLOBAL SITUATION DISPLAY</span><span id="mapSub">NORAD / DEFCON 5</span></div>
-        <div class="panel-bd pad0"><canvas id="mapCanvas"></canvas></div>
-      </div>
-      <div class="panel log">
-        <div class="panel-hd"><span>MISSION LOG</span><span class="dot"></span></div>
-        <div class="panel-bd" id="logBody"></div>
-      </div>
-      <div class="panel cd" id="cdPanel">
-        <div class="panel-hd"><span id="cdTitle">STATUS</span><span id="cdCode">0000</span></div>
-        <div class="panel-bd cdbody">
-          <div class="cdbig" id="cdBig">--:--</div>
-          <div class="cdsub" id="cdSub">STANDBY</div>
-          <div class="cdbar" id="cdBar"><i></i></div>
+      <div class="deck mission" id="missionDeck" data-open="0">
+        <div class="panel map" id="mapPanel">
+          <div class="panel-hd"><span id="mapTitle">GLOBAL SITUATION DISPLAY</span><span id="mapSub">NORAD / DEFCON 5</span></div>
+          <div class="panel-bd pad0"><canvas id="mapCanvas"></canvas></div>
+        </div>
+        <div class="panel log">
+          <div class="panel-hd"><span>MISSION LOG</span><span class="dot"></span></div>
+          <div class="panel-bd" id="logBody"></div>
+        </div>
+        <div class="panel cd" id="cdPanel">
+          <div class="panel-hd"><span id="cdTitle">STATUS</span><span id="cdCode">0000</span></div>
+          <div class="panel-bd cdbody">
+            <div class="cdbig" id="cdBig">--:--</div>
+            <div class="cdsub" id="cdSub">STANDBY</div>
+            <div class="cdbar" id="cdBar"><i></i></div>
+          </div>
         </div>
       </div>
+      <div class="deck panels" id="bottomDeck" data-open="1"></div>
     </div>
 
     <div class="opstrip">
       <span class="op-label" id="opLabel">STANDBY</span>
       <span class="op-bar"><span class="op-fill" id="opFill"></span></span>
-      <span class="op-hex" id="opHex">0000 0000 0000</span>
+      <!-- the live reading the bar is showing; blank until there is a real one -->
+      <span class="op-hex" id="opHex"></span>
     </div>
 
     <div class="gadgetbar">
-      <span class="cap">FX</span>
-      <button class="btn" data-preset="calm">CALM</button>
-      <button class="btn" data-preset="medium" aria-pressed="true">MEDIUM</button>
-      <button class="btn" data-preset="max">MAX</button>
       <span class="cap" style="margin-left:8px">FX</span>
       <button class="btn" id="bGlitch">GLITCH</button>
       <button class="btn" id="bGuru">GURU</button>
       <button class="btn" id="bBoot">REBOOT</button>
       <button class="btn" id="bHud" aria-pressed="true">HUD</button>
       <span class="sep"></span>
-      <span class="hint">F8 shuffle &middot; F9 fx &middot; F10 hud &middot; Ctrl+Shift+C/V copy &middot; Ctrl+Shift+M mission</span>
+      <span class="hint">F7 bar &middot; F8 shuffle &middot; F10 hud &middot; Ctrl+Shift+C/V copy &middot; Ctrl+Shift+M mission</span>
     </div>
 
   </div>

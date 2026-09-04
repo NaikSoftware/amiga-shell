@@ -3,9 +3,16 @@
    duration, a log burst, and optional map side effects (missile strikes,
    continent deletion, restore-from-floppy).
 
-   This module owns the contents of the mission bar element it is handed:
-   the situation display, the mission log and the countdown panel. It
-   rebuilds them on init so it does not depend on markup in index.html. */
+   This module owns the contents of the element it is handed: the situation
+   display, the mission log and the countdown panel. It rebuilds them on init
+   so it does not depend on markup in index.html.
+
+   hud.js hands it the mission *deck*, not the whole bottom bar — the bar's
+   other deck holds hud.js's rotating bottom panel region. So `dataset.open`
+   here opens and closes this deck only, and the panels beside it are none of
+   our business. Three states: "1" a running operation (the deck takes the
+   whole bar), "news" hud.js's NEWS WATCH (the map alone, sharing the bar),
+   "0" closed. Only "1" and "0" are ever written from this file. */
 
 import { createMap } from "./worldmap.js";
 import { EXTRA_MISSIONS } from "./missions-extra.js";
@@ -204,7 +211,9 @@ export function initMissions({ missionBarEl, effects, spawnRequester, setOp, onR
     progress(p){ pct = p; },
     paint(t){
       clock = t;
-      if (missionBarEl.dataset.open === "1") map.paint(t, () => effects.glitch(180));
+      // "1" is a running operation, "news" is hud.js's NEWS WATCH sharing the
+      // bar with the rotating panels — the map is visible in both
+      if (missionBarEl.dataset.open !== "0") map.paint(t, () => effects.glitch(180));
     },
     resize: map.resize,
     start(){ if (!tick) tick = setInterval(beat, 1000); },

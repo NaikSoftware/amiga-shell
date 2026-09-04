@@ -304,6 +304,23 @@ body{
   transition:height .22s steps(5), padding .22s steps(5);
 }
 .missionbar[data-open="0"]{height:0;padding-bottom:0}
+
+/* Two decks share the bar: the mission runner's own instruments and the
+   rotating bottom panel region. During an operation the mission deck takes
+   the whole strip; during NEWS WATCH it shrinks to the map alone and the
+   panels keep their slots beside it; the rest of the time it is gone. */
+.deck{display:flex;gap:6px;min-width:0;min-height:0}
+.deck[data-open="0"]{display:none}
+.deck.mission[data-open="1"]{flex:1 1 auto}
+.deck.mission[data-open="news"]{flex:0 0 40%}
+.deck.mission[data-open="news"] .log,
+.deck.mission[data-open="news"] .cd{display:none}
+.deck.panels{flex:1 1 auto}
+/* the region tears its panels down while an operation owns the bar; an empty
+   deck must not go on holding half the width */
+.deck.panels:empty{display:none}
+/* the bottom slots share the width evenly — a wide panel sets no basis */
+.deck.panels .panel{flex:1 1 0;min-width:0}
 .missionbar .map{flex:1 1 auto}
 .missionbar .log{flex:0 0 296px}
 .missionbar .cd{flex:0 0 178px}
@@ -339,7 +356,9 @@ body{
 .op-bar{flex:1 1 auto;height:12px;background:#1A1206;border:1px solid var(--amber-dim);position:relative;overflow:hidden}
 .op-fill{position:absolute;inset:0 auto 0 0;width:0%;
   background:linear-gradient(to right,var(--amber-dim),var(--amber));transition:width .2s linear}
-.op-hex{flex:0 0 auto;color:var(--amber-dim);letter-spacing:1px}
+/* the live reading the bar is showing; blank when there is nothing real to
+   show, so the width is reserved to stop the bar twitching as it changes */
+.op-hex{flex:0 0 auto;color:var(--amber-dim);letter-spacing:1px;min-width:52px;text-align:right}
 
 /* ── gadget bar ────────────────────────────────────────────── */
 
@@ -390,6 +409,8 @@ body{
 @media (max-width:1100px){
   .missionbar .log{flex:0 0 220px}
   .missionbar .cd{display:none}
+  /* two wide slots is the most that stays readable down here */
+  .deck.panels .panel:nth-child(n+3){display:none}
 }
 @media (max-width:900px){
   .workarea{flex-direction:column}
