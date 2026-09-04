@@ -14,7 +14,8 @@ const AMBER = "#FFB627";
 const HI = "#FFE9B0";
 const DIM = "#8A6212";
 
-/* Cities match the world map's CITY table so the two panels agree. */
+/* The cities the news map is most likely to plot, so the clock and the
+   map tend to agree on what part of the world you are looking at. */
 const ZONES = [
   ["KYIV", "Europe/Kyiv"],
   ["MOSCOW", "Europe/Moscow"],

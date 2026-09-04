@@ -4,7 +4,7 @@
      {title, kind:"lines",  gen:"<key in GENERATORS>", rate:<ms>}
      {title, kind:"canvas", paint:fn, grow:0, h:<px>}
 
-   The `lines` panels here feed on EXTRA_GENERATORS from missions-extra.js,
+   The `lines` panels here feed on EXTRA_GENERATORS from generators.js,
    so hud.js must merge that in before mounting them.
 
    Painters are called as paint(ctx, w, h, t, load, mic) from the rAF loop.

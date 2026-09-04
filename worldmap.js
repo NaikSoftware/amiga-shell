@@ -1,11 +1,15 @@
 /* worldmap.js — the 64x32 world, and the painter that draws it.
-   Ported verbatim from prototype.html: land mask, region table, city
-   coordinates, and the situation-display painter with its ICBM arcs,
-   impact rings and blinking target reticles.
-   No DOM lookups here beyond the canvas it is handed — missions.js owns
-   the mission bar, this file only knows how to paint into a 2D context. */
+   Land mask ported verbatim from prototype.html; the display on top of it is
+   NEWS WATCH: real geolocated headlines pushed from main.js, amber diamonds
+   with one label on screen at a time and a trace arc between consecutive
+   stories.
 
-export const MAPW = 64, MAPH = 32;
+   No DOM here at all — not even a canvas. paintWorldMap() has exactly the
+   signature every other HUD canvas painter has, so the map is an ordinary
+   `kind:"canvas"` panel: hud.js owns the element, builds it on mount and
+   drops it on unmount, and the map has no lifecycle of its own to leak. */
+
+const MAPW = 64, MAPH = 32;
 
 /* 64x32 equirectangular land mask, stored as per-row column spans.
    Deliberately coarse — at CRT scale it reads as continents, and the
@@ -41,49 +45,20 @@ const LAND = {
   28:[[0,64]],29:[[0,64]],30:[[0,64]],31:[[0,64]]
 };
 
-export const landGrid = Array.from({length:MAPH}, () => new Array(MAPW).fill(0));
+const landGrid = Array.from({length:MAPH}, () => new Array(MAPW).fill(0));
 for (const r in LAND) for (const [a,b] of LAND[r])
   for (let c = a; c < b && c < MAPW; c++) landGrid[r][c] = 1;
 
-export const REGIONS = [
-  {n:"ANTARCTICA",    r:[27,32], c:[0,64]},
-  {n:"NORTH-AMERICA", r:[0,15],  c:[0,28]},
-  {n:"SOUTH-AMERICA", r:[13,27], c:[14,29]},
-  {n:"EUROPE",        r:[1,11],  c:[29,41]},
-  {n:"AFRICA",        r:[9,24],  c:[26,44]},
-  {n:"ASIA",          r:[0,17],  c:[40,64]},
-  {n:"OCEANIA",       r:[14,27], c:[46,64]}
-];
-
-export function regionOf(r,c){
-  for (const g of REGIONS)
-    if (r >= g.r[0] && r < g.r[1] && c >= g.c[0] && c < g.c[1]) return g.n;
-  return "OCEANIA";
-}
-
-export const CITY = {
-  MOSCOW:[55.7,37.6], KYIV:[50.4,30.5], LONDON:[51.5,-0.1],
-  WASHINGTON:[38.9,-77.0], BEIJING:[39.9,116.4], PYONGYANG:[39.0,125.7],
-  TEHRAN:[35.7,51.4], "CHEYENNE MTN":[38.7,-104.8], VANDENBERG:[34.7,-120.6],
-  BERLIN:[52.5,13.4], TOKYO:[35.7,139.7], CANBERRA:[-35.3,149.1],
-  "DIEGO GARCIA":[-7.3,72.4], BRASILIA:[-15.8,-47.9]
-};
-
 /* ── live news markers ──────────────────────────────────────────────────
    Real geolocated headlines, pushed from main.js via hud.js. Module-level
-   rather than per-map state: there is exactly one situation display, the
-   mission runner owns the createMap() instance, and hud.js — which receives
-   the feed — has no handle on it. Deliberately kept separate from `state`
-   so a fake mission can never write into the news display or the reverse.
-   ponytail: single-map assumption; make it per-instance if a second map
-   ever exists. */
+   rather than per-panel state: the feed arrives in hud.js, the map panel can
+   mount and unmount underneath it, and neither needs a handle on the other.
+   ponytail: single-map assumption; key it per panel if two ever mount. */
 let newsMarkers = [];
-let newsMode = false;
 const NEWS_DWELL = 20;
 /* Trace arcs. When the "now showing" story rotates, a trajectory flies from
-   the previous story's location to the new one — the same instrument as the
-   ICBM arcs, in amber and without the pretence of a warhead. Purely visual;
-   holds at most a handful of entries and drops them once they land. */
+   the previous story's location to the new one. Purely visual; holds at most
+   a handful of entries and drops them once they land. */
 const NEWS_ARC_DUR = 2.6;
 let newsArcs = [], newsLastCur = -1;                        // seconds per story on the label
 
@@ -112,24 +87,19 @@ export function setNewsMarkers(list){
   newsArcs = []; newsLastCur = -1;
 }
 
-/* hud.js decides when the map is in NEWS WATCH mode — during a scripted
-   operation the map belongs to the mission and the markers stay off. */
-export function setNewsMode(on){ newsMode = !!on; }
 export const newsMarkerCount = () => newsMarkers.length;
 export function currentNewsMarker(t){
   if (!newsMarkers.length) return null;
   return newsMarkers[Math.floor(Math.max(0,t) / NEWS_DWELL) % newsMarkers.length];
 }
 
-/* NEWS WATCH markers. Same instrument, different language: amber diamonds
-   with a slow breath instead of the targets' red blink, and exactly one
+/* NEWS WATCH markers: amber diamonds with a slow breath, and exactly one
    label on screen at a time, stepping through the stories every NEWS_DWELL
    seconds. Nothing in here allocates — colours are literals, alpha rides
    globalAlpha, and the label string was built when the markers arrived. */
 /* Amber trajectory between two news markers: a quadratic bezier drawn out to
-   flight progress, a bright head at the tip, and an expanding ring on arrival.
-   Same geometry as the ICBM arcs so the map reads as one instrument, but the
-   colour keeps real headlines visually separate from the fiction. */
+   flight progress, a bright head at the tip, and an expanding ring on
+   arrival. */
 function paintNewsArcs(ctx, g, t){
   if (!newsArcs.length) return;
   const xy = (m) => [ g.ox + ((m.lon+180)/5.625)*g.cs,
@@ -236,137 +206,27 @@ function mapGeom(w,h){
   const cs = Math.min(w/MAPW, h/MAPH);
   return {cs, ox:(w - cs*MAPW)/2, oy:(h - cs*MAPH)/2};
 }
-function ll2xy(lat,lon,g){
-  return [g.ox + ((lon+180)/5.625)*g.cs, g.oy + ((90-lat)/5.625)*g.cs];
-}
-const blank = () => ({targets:[], links:[], strikes:[], rings:[], sub:"NORAD / DEFCON 5"});
+/* paintWorldMap(ctx, w, h, t) — the HUD's standard canvas painter signature,
+   so this drops into the panel registry like any other instrument. Draws the
+   ocean dot grid and the land cells, then whatever NEWS WATCH has. With no
+   headlines yet it is simply a world map, which reads fine on its own. */
+export function paintWorldMap(ctx, w, h, t){
+  if (!w || !h) return;
+  const g = mapGeom(w, h);
+  ctx.clearRect(0, 0, w, h);
 
-/* createMap(canvas) -> the situation display.
-   `deleted` is a live Set of region names; missions add to it to make a
-   continent vanish and clear it to restore from the floppy backup. */
-export function createMap(canvas){
-  const ctx = canvas.getContext("2d");
-  const deleted = new Set();
-  let state = blank();
-
-  function resize(){
-    const box = canvas.parentElement;
-    if (!box) return;
-    const r = box.getBoundingClientRect();
-    canvas.width  = Math.max(80, Math.floor(r.width));
-    canvas.height = Math.max(60, Math.floor(r.height));
-  }
-
-  /* paint(t, onImpact) — t is seconds since the HUD started.
-     onImpact(name) fires once per warhead arrival so the caller can
-     punctuate it with effects.glitch(). */
-  function paint(t, onImpact){
-    const w = canvas.width, h = canvas.height;
-    if (!w) return;
-    const g = mapGeom(w,h);
-    ctx.clearRect(0,0,w,h);
-
-    // ocean dot grid + land cells
-    for (let r = 0; r < MAPH; r++){
-      for (let c = 0; c < MAPW; c++){
-        const x = g.ox + c*g.cs, y = g.oy + r*g.cs;
-        if (landGrid[r][c]){
-          if (deleted.has(regionOf(r,c))){
-            ctx.fillStyle = "rgba(255,60,60,.16)";
-            ctx.fillRect(x + g.cs*.35, y + g.cs*.35, Math.max(1,g.cs*.3), Math.max(1,g.cs*.3));
-          } else {
-            ctx.fillStyle = "rgba(255,182,39,.62)";
-            ctx.fillRect(x, y, Math.max(1,g.cs-.6), Math.max(1,g.cs-.6));
-          }
-        } else if ((r+c) % 2 === 0){
-          ctx.fillStyle = "rgba(255,182,39,.10)";
-          ctx.fillRect(x + g.cs*.4, y + g.cs*.4, 1, 1);
-        }
+  for (let r = 0; r < MAPH; r++){
+    for (let c = 0; c < MAPW; c++){
+      const x = g.ox + c*g.cs, y = g.oy + r*g.cs;
+      if (landGrid[r][c]){
+        ctx.fillStyle = "rgba(255,182,39,.62)";
+        ctx.fillRect(x, y, Math.max(1,g.cs-.6), Math.max(1,g.cs-.6));
+      } else if ((r+c) % 2 === 0){
+        ctx.fillStyle = "rgba(255,182,39,.10)";
+        ctx.fillRect(x + g.cs*.4, y + g.cs*.4, 1, 1);
       }
     }
-
-    /* NEWS WATCH owns the map whenever hud.js says no operation is running.
-       It returns here so a finished mission's leftover targets and routes
-       can never share the display with real headlines — fake and real do
-       not mix on this panel, in either direction. */
-    if (newsMode){ paintNews(ctx, g, t, w, h); return; }
-
-    // static links (breach routes)
-    ctx.lineWidth = 1;
-    state.links.forEach(l => {
-      if (!CITY[l.from] || !CITY[l.to]) return;
-      const a = ll2xy(...CITY[l.from], g), b = ll2xy(...CITY[l.to], g);
-      const mx = (a[0]+b[0])/2, my = (a[1]+b[1])/2 - Math.hypot(b[0]-a[0], b[1]-a[1])*.28;
-      ctx.strokeStyle = "rgba(255,233,176,.75)";
-      ctx.setLineDash([4,3]);
-      ctx.lineDashOffset = -t*22;
-      ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.quadraticCurveTo(mx,my,b[0],b[1]); ctx.stroke();
-      ctx.setLineDash([]);
-    });
-
-    // ICBM arcs — a quadratic bezier drawn out to the flight progress
-    state.strikes.forEach(s => {
-      if (!CITY[s.from] || !CITY[s.to]) return;
-      const p = Math.max(0, Math.min(1, (t - s.t0) / s.dur));
-      if (p <= 0) return;
-      const a = ll2xy(...CITY[s.from], g), b = ll2xy(...CITY[s.to], g);
-      const d = Math.hypot(b[0]-a[0], b[1]-a[1]);
-      const mx = (a[0]+b[0])/2, my = (a[1]+b[1])/2 - d*.45;
-      const qx = (u) => (1-u)*(1-u)*a[0] + 2*(1-u)*u*mx + u*u*b[0];
-      const qy = (u) => (1-u)*(1-u)*a[1] + 2*(1-u)*u*my + u*u*b[1];
-
-      ctx.strokeStyle = "rgba(255,68,68,.85)";
-      ctx.lineWidth = 1.4;
-      ctx.beginPath(); ctx.moveTo(a[0],a[1]);
-      for (let u = 0; u <= p; u += .02) ctx.lineTo(qx(u), qy(u));
-      ctx.stroke();
-      ctx.lineWidth = 1;
-
-      ctx.fillStyle = "#FFFFFF";
-      ctx.fillRect(qx(p)-2, qy(p)-2, 4, 4);
-
-      if (p >= 1 && !s.hit){
-        s.hit = true;
-        state.rings.push({x:b[0], y:b[1], t0:t});
-        if (onImpact) onImpact(s.to);
-      }
-    });
-
-    // impact rings
-    state.rings = state.rings.filter(r => t - r.t0 < 1.6);
-    state.rings.forEach(r => {
-      const p = (t - r.t0) / 1.6;
-      ctx.strokeStyle = `rgba(255,68,68,${(1-p).toFixed(2)})`;
-      ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(r.x, r.y, p*38, 0, Math.PI*2); ctx.stroke();
-      ctx.lineWidth = 1;
-    });
-
-    // targets
-    const blinkOn = Math.sin(t*7) > 0;
-    ctx.font = "10px monospace";
-    state.targets.forEach(name => {
-      if (!CITY[name]) return;
-      const [x,y] = ll2xy(...CITY[name], g);
-      ctx.strokeStyle = blinkOn ? "#FF4444" : "rgba(255,68,68,.35)";
-      ctx.lineWidth = 1.4;
-      ctx.beginPath();
-      ctx.moveTo(x-6,y); ctx.lineTo(x+6,y);
-      ctx.moveTo(x,y-6); ctx.lineTo(x,y+6); ctx.stroke();
-      ctx.strokeRect(x-4.5, y-4.5, 9, 9);
-      ctx.lineWidth = 1;
-      ctx.fillStyle = "#FFE9B0";
-      ctx.fillText(name, x + 9, y + 3);
-    });
-
   }
 
-  return {
-    deleted,
-    get state(){ return state; },
-    reset(s){ state = Object.assign(blank(), s || {}); deleted.clear(); },
-    addStrike(st, t0){ state.strikes.push({...st, t0, hit:false}); },
-    clearStrikes(){ state.strikes = []; state.rings = []; },
-    resize, paint
-  };
+  paintNews(ctx, g, t, w, h);
 }

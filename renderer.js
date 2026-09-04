@@ -115,7 +115,7 @@ function getSourceCanvas(){
 
 /* ── sizing ────────────────────────────────────────────────── */
 /* One rAF-coalesced refit, driven by a ResizeObserver on the xterm host.
-   That single source covers window resize, the HUD toggle and the mission
+   That single source covers window resize, the HUD toggle and the panel
    bar opening — no per-caller bookkeeping. pty.resize runs every time so
    SIGWINCH always reaches the child. */
 
@@ -198,7 +198,7 @@ try {
 
 try {
   const { initHud } = await import("./hud.js");
-  hud = initHud({ hudEl: $("hud"), missionBarEl: $("missionbar"), config: cfg, effects });
+  hud = initHud({ hudEl: $("hud"), barEl: $("panelbar"), config: cfg, effects });
 } catch (e) {
   console.warn("[amigaterm] hud.js unavailable, running without the HUD:", e);
 }
@@ -210,23 +210,12 @@ if (amiga.shellError) {
   try { effects && effects.guru(); } catch (e) {}
 }
 
-/* ── intensity ─────────────────────────────────────────────────
-   One fixed level. The calm/medium/max switch existed to let the effects be
-   dialled down when they got in the way; the sensible middle setting is the
-   only one anyone actually wanted, so it is now simply what the app is.
-   config.json's per-effect 0-100 values still work for anyone who wants to
-   retune — this just removes the runtime switch and its UI. */
+/* ── effects level ─────────────────────────────────────────────
+   One fixed level, and no UI: the intensity presets are gone and so are the
+   GLITCH / GURU / REBOOT trigger buttons. The effects themselves still run
+   ambiently. config.json's per-effect 0-100 values are the only knobs. */
 
 const FX = { scanlines: 45, bloom: 30, curvature: 15, glitchRate: 8, flicker: 5 };
-
-/* The preset gadgets are gone. Remove them and only the caption that
-   labelled them, leaving the other gadget-bar captions intact. */
-for (const b of document.querySelectorAll("[data-preset]")) {
-  const cap = b.previousElementSibling;
-  if (cap && cap.classList.contains("cap") && /^FX$/i.test(cap.textContent.trim()))
-    cap.remove();
-  b.remove();
-}
 
 /* ── HUD toggle ────────────────────────────────────────────── */
 
@@ -239,11 +228,6 @@ function toggleHud(on){
 }
 if (cfg.hud === false) toggleHud(false);
 
-/* ── missions ──────────────────────────────────────────────── */
-// ponytail: mission keys hard-coded from the spec's list; hud.js owns the
-// scripts. A key it does not know is a no-op there, not a crash here.
-const MISSION_KEYS = ["kremlin", "icbm", "delworld", "gibson", "satellite"];
-/* Swap the HUD to a different layout for the current scenario, now. */
 /* Show/hide the blue Workbench gadget bar along the bottom. Inline display
    rather than a class so it needs nothing from style.css, and the terminal
    is refitted after because hiding the bar gives the screen more rows. */
@@ -256,14 +240,9 @@ function toggleGadgetBar(){
   refit();
 }
 
+/* Re-pick both HUD panel regions' layouts, now. */
 function shufflePanels(){
   try { hud && hud.shuffle && hud.shuffle(); } catch (e) {}
-}
-
-function randomMission(){
-  try {
-    hud && hud.runMission(MISSION_KEYS[Math.floor(Math.random() * MISSION_KEYS.length)]);
-  } catch (e) {}
 }
 
 /* ── clipboard ─────────────────────────────────────────────── */
@@ -291,7 +270,6 @@ function hotkey(e){
     switch (String(e.key).toLowerCase()){
       case "c": return copySelection;
       case "v": return pasteClipboard;
-      case "m": return randomMission;
       case "l": return shufflePanels;
       case "b": return toggleGadgetBar;
     }
@@ -317,9 +295,6 @@ $("gClose").addEventListener("click",  () => amiga.close && amiga.close());
 // contract; blur is the honest near-miss. Wire amiga.depth() if it appears.
 $("gDepth").addEventListener("click",  () => amiga.depth ? amiga.depth() : window.blur());
 
-$("bGlitch").addEventListener("click", () => { try { effects && effects.glitch(420); } catch (e) {} });
-$("bGuru").addEventListener("click",   () => { try { effects && effects.guru(); } catch (e) {} });
-$("bBoot").addEventListener("click",   () => runBoot());
 $("bHud").addEventListener("click",    () => toggleHud());
 
 /* ── boot sequence ─────────────────────────────────────────── */

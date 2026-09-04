@@ -1,14 +1,18 @@
-/* hud.js — the theater column: fake-op panels, line generators, canvas
-   instruments, Workbench requesters, and the Claude activity sniffer.
-   Ported from prototype.html; missions and the world map live next door.
+/* hud.js — the theater column: panels, line generators, canvas instruments,
+   Workbench requesters, and the Claude activity sniffer.
+
+   There is exactly one concept here: panels. A registry of specs, per-scenario
+   layout tables, and two regions — the side column and the bottom bar — that
+   mount from it under identical rules. Rotation, the hold timer, the pin
+   gadget and F8 work the same in both, because there is nothing else in
+   either region to work around.
 
    Everything here is decoration. The PTY stream is never touched: feed()
    is a read-only tap wrapped in try/catch, and setEnabled(false) tears
    down every interval and rAF so an idle HUD costs nothing. */
 
-import { initMissions, MISSION_KEYS } from "./missions.js";
-import { setNewsMarkers, setNewsMode, newsMarkerCount, currentNewsMarker } from "./worldmap.js";
-import { EXTRA_GENERATORS } from "./missions-extra.js";
+import { setNewsMarkers } from "./worldmap.js";
+import { EXTRA_GENERATORS } from "./generators.js";
 import { EXTRA_PANELS, EXTRA_LAYOUTS } from "./panels-extra.js";
 import { CLOCK_PANELS, CLOCK_LAYOUTS } from "./panels-clock.js";
 import { SYS_PANELS, SYS_LAYOUTS, setSys } from "./panels-sys.js";
@@ -289,7 +293,20 @@ try {
    this file ever mixes them with the generated panel content. */
 try {
   window.amiga?.onNewsMap?.((markers) => setNewsMarkers(markers));
-} catch (e) { /* no bridge: the map simply never enters NEWS WATCH */ }
+} catch (e) { /* no bridge: the map panel is then just a world map */ }
+
+/* ── sniffed Claude Code activity ─────────────────────────────────────
+   What the sniffer saw, newest last, with a wall-clock stamp. This is the
+   one log in the HUD that is not fiction: every line is a tool call that
+   really came down the PTY. Module-level so the CLAUDE ACTIVITY panel can
+   rotate out and back without losing the history. */
+const ACTIVITY_CAP = 40;
+const activity = [];
+function logActivity(text){
+  const d = new Date();
+  activity.push(d.toTimeString().slice(0,8) + " " + text);
+  while (activity.length > ACTIVITY_CAP) activity.shift();
+}
 
 /* Headlines come from outside the app, so they are escaped before they
    ever reach innerHTML. Everything else in this file is generated locally. */
@@ -386,13 +403,12 @@ for (const k in SYS_LAYOUTS)
    to the bottom region — see regionOf(). */
 Object.assign(PANELS, WIDE_PANELS);
 
-/* ── operation strip, idle behaviour ───────────────────────────────────
-   While an operation runs the strip tracks that operation and nothing here
-   applies. The rest of the time it used to ramp 0->100 forever and mean
-   absolutely nothing, which is exactly the kind of invented motion the rest
-   of this file goes out of its way to avoid. Now it reads a real number off
-   sysprobe and rotates slowly through whichever ones exist. No telemetry
-   means no motion at all — parked at zero, labelled STANDBY. */
+/* ── operation strip ──────────────────────────────────────────────────
+   It used to ramp 0->100 forever and mean absolutely nothing, which is
+   exactly the kind of invented motion the rest of this file goes out of its
+   way to avoid. It now reads a real number off sysprobe and rotates slowly
+   through whichever ones exist, and nothing else ever writes to it. No
+   telemetry means no motion at all — parked at zero, labelled STANDBY. */
 export const OP_METRICS = [
   (s) => s && s.cpu && s.cpu.agg != null ? {label:"CPU LOAD", pct:s.cpu.agg} : null,
   (s) => s && s.mem && s.mem.usedPct != null ? {label:"MEMORY", pct:s.mem.usedPct} : null,
@@ -401,19 +417,6 @@ export const OP_METRICS = [
   (s) => s && s.gpu && s.gpu.util != null ? {label:"GPU", pct:s.gpu.util} : null
 ];
 const OP_SWAP_MS = 8000;      // slow enough to read, fast enough to be alive
-
-/* a tool call may kick off a matching mission — see the gate in initHud */
-/* Each scenario draws from a pool so the same tool call doesn't always
-   stage the same operation. Themed loosely: reading -> snooping, editing ->
-   destructive, bash -> intrusion, net -> long-haul comms, task -> summoning
-   something. All 19 are reachable from real work, not just Ctrl+Shift+M. */
-const MISSION_FOR = {
-  read: ["gibson", "enigma", "sentience", "y2k", "faxnet"],
-  edit: ["delworld", "system32", "gravity", "polarity", "agnus"],
-  bash: ["kremlin", "bitcoin", "demon", "pizza", "nyse"],
-  net:  ["icbm", "mothership", "voyager", "satellite", "faxnet"],
-  task: ["satellite", "sentience", "demon", "voyager", "bitcoin"]
-};
 
 /* ── requesters ────────────────────────────────────────────────────── */
 
@@ -450,6 +453,12 @@ const SNIFF_RX = new RegExp(SNIFF_RULES.map(r => "(" + r[0] + ")").join("|"), "g
 const TAIL_CAP = 4096;
 
 /* createSniffer(onScenario) -> feed(chunk)
+   onScenario(key, marker, call) — `key` is the scenario, `marker` the text
+   that matched, `call` that marker plus whatever of the line has arrived so
+   far, so the CLAUDE ACTIVITY panel can show `Bash(npm test)` and not just
+   `Bash(`. A chunk boundary mid-argument means `call` is short; that is a
+   cosmetic truncation in a log, never a missed match.
+
    PTY chunks split at arbitrary byte boundaries, so `⏺ Bash(` routinely
    arrives as two chunks. We keep a rolling tail of the stripped stream and
    a cursor marking how far we have already matched, so a marker fires its
@@ -473,7 +482,11 @@ export function createSniffer(onScenario){
       cursor = m.index + m[0].length;
       SNIFF_RX.lastIndex = cursor;
       for (let i = 1; i < m.length; i++){
-        if (m[i] !== undefined){ onScenario(SNIFF_RULES[i-1][1], m[0]); break; }
+        if (m[i] !== undefined){
+          const call = buf.slice(m.index, m.index + 72).split("\n")[0];
+          onScenario(SNIFF_RULES[i-1][1], m[0], call);
+          break;
+        }
       }
     }
     if (buf.length > TAIL_CAP){
@@ -490,47 +503,30 @@ export function createSniffer(onScenario){
 
 /* ── the HUD itself ────────────────────────────────────────────────── */
 
-export function initHud({ hudEl, missionBarEl, config, effects }){
+export function initHud({ hudEl, barEl, config, effects }){
   const fx = effects || {glitch(){}, guru(){}};
   let cfg = normCfg(config);
   let running = false, raf = 0, t0 = performance.now(), clock = 0;
   let typingBoost = 0, lastType = 0;
-  let scenarioKey = "idle", load = .35, opPct = 0, lastMission = 0, lastSniff = 0;
+  let scenarioKey = "idle", load = .35, opPct = 0, lastSniff = 0;
   const timers = [];
   const openReqs = new Set();
 
   /* ── regions ────────────────────────────────────────────────────────
      Panels live in two places: the side column and the bottom bar. Same
-     registry, same builder, same rotation, same pin gadget — only the host
-     element, the layout table and the hold timer differ, so everything below
-     takes a region object instead of reaching for hudEl directly.
+     registry, same builder, same rotation, same pin gadget, same shuffle —
+     only the host element, the layout table and the hold timer differ, so
+     everything below takes a region object instead of reaching for hudEl
+     directly. Nothing else can own either region, which is what makes F8
+     unconditional.
 
-     The bar holds two decks side by side: the mission runner's own DOM and
-     the rotating bottom region. index.html ships both; build them if it does
-     not, the same way missions.js copes with missing markup. */
-  function deckEl(cls, open){
-    let d = missionBarEl.querySelector(":scope > .deck." + cls);
-    if (!d){
-      d = document.createElement("div");
-      d.className = "deck " + cls;
-      missionBarEl.appendChild(d);
-    }
-    d.dataset.open = open;
-    return d;
-  }
-  const missionDeck = deckEl("mission", "0");   // must come first: it is left-most
-  const bottomDeck  = deckEl("panels", "1");
-
+     The bar element IS the bottom region — there is no deck wrapper any
+     more, because there is no longer a second thing sharing the bar. */
   const REGIONS = {
-    side:   {name:"side",   el:hudEl,      layouts:LAYOUTS,        mounted:new Map(), lastLayout:0},
-    bottom: {name:"bottom", el:bottomDeck, layouts:BOTTOM_LAYOUTS, mounted:new Map(), lastLayout:0}
+    side:   {name:"side",   el:hudEl, layouts:LAYOUTS,        mounted:new Map(), lastLayout:0},
+    bottom: {name:"bottom", el:barEl, layouts:BOTTOM_LAYOUTS, mounted:new Map(), lastLayout:0}
   };
   const eachRegion = (fn) => { fn(REGIONS.side); fn(REGIONS.bottom); };
-
-  /* True only while a scripted operation owns the whole bar. NEWS WATCH sets
-     the deck to "news", which is the map alone at 40% — the bottom panels
-     keep their slots alongside it. */
-  const barBusy = () => missionDeck.dataset.open === "1";
 
   // the operation strip is index.html's, not ours — write it if it exists,
   // shrug if it does not. The window title belongs to renderer.js (real cwd),
@@ -583,11 +579,16 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
     if (spec.kind === "canvas"){
       bd.classList.add("pad0");
       const cv = document.createElement("canvas");
+      // a fresh canvas defaults to 300x150; CSS then stretches that bitmap
+      // into whatever box the panel really has, which is the distortion.
+      // Zero means "not measured yet" and paintPanel's guard skips it.
+      cv.width = 0; cv.height = 0;
       bd.appendChild(cv);
       p.canvas = cv; p.ctx = cv.getContext("2d");
-      // panels that can show real audio own two fixed header strings, so
-      // the honest one can be swapped in per frame without allocating
-      if (spec.mic){ p.hdText = hd.firstChild; p.titleLive = spec.title + "  MIC LIVE"; }
+      // panels with a live header — the mic state, the map's now-showing
+      // story — own the title span so paintPanel can rewrite it in place
+      if (spec.mic || spec.head) p.hdText = hd.firstChild;
+      if (spec.mic) p.titleLive = spec.title + "  MIC LIVE";
     }
     if (spec.kind === "gauges"){
       // labels are rewritten per-tick to match whichever source is real
@@ -628,6 +629,24 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
     p.timer = setInterval(paint, spec.rate);
   }
 
+  /* The one honest log in the HUD: sniffed Claude Code tool calls, newest
+     at the bottom, wall-clock stamped. Nothing is generated here — an empty
+     history says so rather than inventing traffic to fill the panel. */
+  if (spec.kind === "activity"){
+    const paint = () => {
+      const cap = Math.max(3, Math.floor(bd.clientHeight / 18));
+      if (!activity.length){
+        bd.innerHTML = `<span class="fade">  AWAITING CLAUDE CODE...</span>`;
+        return;
+      }
+      const rows = activity.slice(-cap);
+      bd.innerHTML = rows.map((l, i) =>
+        i === rows.length - 1 ? `<span class="hot">${esc(l)}</span>` : esc(l)).join("\n");
+    };
+    paint();
+    p.timer = setInterval(paint, spec.rate || 1000);
+  }
+
   if (spec.kind === "lines"){
       for (let i = 0; i < 5; i++) p.lines.push(GENERATORS[spec.gen]());
       p.timer = setInterval(() => {
@@ -645,9 +664,35 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
   function sizeCanvas(p){
     if (!p.canvas) return;
     const r = p.body.getBoundingClientRect();
-    p.canvas.width = Math.max(40, Math.floor(r.width));
-    p.canvas.height = Math.max(40, Math.floor(r.height));
+    const w = Math.floor(r.width), h = Math.floor(r.height);
+    // 0x0 happens legitimately mid-transition. Sizing to a placeholder there
+    // is what leaves a bitmap of the wrong aspect ratio to be stretched into
+    // the real box — so leave it and wait for the observer to say otherwise.
+    if (w < 8 || h < 8) return;
+    // assigning width/height clears the canvas, so only do it on a real change
+    if (p.canvas.width !== w) p.canvas.width = w;
+    if (p.canvas.height !== h) p.canvas.height = h;
   }
+
+  /* One rAF-coalesced sizing pass for both regions — the same discipline
+     renderer.js's refit() uses, and for the same reason. Measuring a canvas
+     in the same tick it was appended reads the pre-layout box: flex has not
+     run yet, so every bottom-deck canvas came up the wrong size and stayed
+     that way until a window resize forced a re-measure. One frame later the
+     layout is settled and getBoundingClientRect is telling the truth.
+
+     A ResizeObserver per region covers everything that changes the boxes
+     without a window resize: the bar opening, F10, and F7 hiding the gadget
+     bar and handing the bar more height. No per-panel timers. */
+  let sizeRaf = 0;
+  function sizeAll(){
+    if (sizeRaf) return;
+    sizeRaf = requestAnimationFrame(() => {
+      sizeRaf = 0;
+      eachRegion(rg => rg.mounted.forEach(sizeCanvas));
+    });
+  }
+  const sizeObserver = new ResizeObserver(sizeAll);
 
   /* Animated removal. Also the only place a panel timer is cleared, so a
      panel can never leave the DOM with its interval still running. */
@@ -682,26 +727,10 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
         const p = buildPanel(k);
         rg.mounted.set(k, p);
         rg.el.appendChild(p.el);
-        sizeCanvas(p);
       }
     });
     keys.forEach(k => rg.el.appendChild(rg.mounted.get(k).el));
-  }
-
-  function sizeAll(){
-    eachRegion(rg => rg.mounted.forEach(sizeCanvas));
-    missions.resize();
-  }
-
-  /* The op strip label. A running operation owns it for as long as it runs;
-     the rest of the time opTick writes the current real reading there. */
-  let opLabelHold = null;
-
-  function setOp(label, crit){
-    opLabelHold = label || null;
-    if (!op.label) return;
-    op.label.classList.toggle("crit", !!crit);
-    if (label) op.label.textContent = label;
+    sizeAll();          // next frame, once flex has actually laid the slots out
   }
 
   /* Minimum time a set of panels stays on screen, no matter what the stream
@@ -713,11 +742,14 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
   const LAYOUT_HOLD_MS = 45000;
 
   /* Re-pick one region's layout, gated by that region's own hold timer.
-     `force` is the explicit shuffle and the bottom bar taking its slots back
-     after an operation — neither should be swallowed by the hold. Returns
-     true if the layout actually changed. */
+     `force` is the explicit shuffle, which must never be swallowed by the
+     hold. Returns true if the layout actually changed.
+
+     There is deliberately no other veto here. The bottom region used to
+     decline while the mission runner owned the bar, which is why F8 shuffled
+     the column and left the bar alone — the reported bug. Both regions are
+     now plain panel regions and both always answer. */
   function relayout(rg, now, force){
-    if (rg === REGIONS.bottom && barBusy()) return false;   // an operation owns the bar
     if (!force && now - rg.lastLayout < LAYOUT_HOLD_MS && rg.mounted.size) return false;
     rg.lastLayout = now;
     setLayout(rg, pick(rg.layouts[scenarioKey] || rg.layouts.idle));
@@ -729,35 +761,30 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
     const now = Date.now();
     scenarioKey = next;
     load = scenarioKey === "idle" ? .35 : 1;
-    if (!missions.active()) setOp(null, false);
 
     // hold the panels even across a scenario change — both regions, each on
     // its own timer, so the column and the bar do not turn over in lockstep
     let changed = false;
     eachRegion(rg => { if (relayout(rg, now)) changed = true; });
     // rare on purpose, and behind the shared cooldown in spawnRequester
-    if (changed && scenarioKey !== "idle" && !missions.active() && Math.random() < .06)
+    if (changed && scenarioKey !== "idle" && Math.random() < .06)
       setTimeout(spawnRequester, rnd(300,1400));
   }
 
   /* ── requesters ──────────────────────────────────────────────────────
-     Three unrelated sources used to fire these — an ambient timer, every
-     non-idle scenario change, and the end of an operation — and none of them
-     knew about the others, so they stacked into bursts. One shared leash
-     now: an ambient popup needs REQ_COOLDOWN_MS of quiet behind it, whatever
-     produced the last one. A mission's closing requester is punctuation on
-     something the user triggered, so it ignores the leash — but it still
-     stamps it, so nothing ambient piles on straight after. */
+     Two unrelated sources fire these — an ambient timer and the occasional
+     non-idle scenario change — and neither knows about the other, so they
+     used to stack into bursts. One shared leash: a popup needs
+     REQ_COOLDOWN_MS of quiet behind it, whatever produced the last one. */
   const REQ_COOLDOWN_MS = 90000;
   let lastReq = 0;
 
-  function spawnRequester(forceAlert){
+  function spawnRequester(){
     if (!running || openReqs.size >= 2) return;
     const now = Date.now();
-    // undefined => ambient. A mission passes 0 or 2 and is never held back.
-    if (forceAlert === undefined && now - lastReq < REQ_COOLDOWN_MS) return;
+    if (now - lastReq < REQ_COOLDOWN_MS) return;
     lastReq = now;
-    const r = forceAlert === 2 || (forceAlert !== 0 && Math.random() < .3) ? pick(ALERTS) : pick(REQUESTERS);
+    const r = Math.random() < .3 ? pick(ALERTS) : pick(REQUESTERS);
     const el = document.createElement("div");
     el.className = "requester" + (r.alert ? " alert" : "");
     el.innerHTML =
@@ -778,94 +805,14 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
     setTimeout(close, rnd(3800, 7000));
   }
 
-  /* The mission runner keeps its own DOM and gets its own deck. It is handed
-     that deck as its "bar", so every `dataset.open` it writes lands on the
-     deck rather than on the whole strip — which is how the rotating bottom
-     region can hold the other half of the strip at the same time. */
-  const missions = initMissions({
-    missionBarEl: missionDeck, effects: fx, spawnRequester, setOp, onResize: sizeAll
-  });
+  /* ── sniffer wiring ──────────────────────────────────────────────────
+     A tool call does two things and no more: it picks the scenario whose
+     layout group is in rotation, and it goes in the activity log. */
 
-  /* Bottom region vs. the mission runner. While an operation owns the bar the
-     rotating panels step aside completely — unmounted, timers cleared, zero
-     cost — and take their slots back on the next tick afterwards. Pins are in
-     the same PINNED set, so a pinned wide panel comes straight back with them.
-     Exactly the cooperation newsWatch() already had, applied to the panels. */
-  function bottomTick(){
-    if (barBusy()){
-      // teardown, not setLayout([]): a pin must not keep a hidden panel and
-      // its interval alive underneath a running operation
-      if (REGIONS.bottom.mounted.size) teardown(REGIONS.bottom);
-      return;
-    }
-    if (!REGIONS.bottom.mounted.size) relayout(REGIONS.bottom, Date.now(), true);
-  }
-
-  /* ── NEWS WATCH ──────────────────────────────────────────────────────
-     What the map shows when no scripted operation is running, so the bar
-     is useful rather than only theatrical.
-
-     The mission runner owns its deck — it sets data-open itself and closes
-     it 1.8s after an operation finishes. We never fight it: while a
-     mission is active we hand the map back untouched, and afterwards we
-     re-open the deck on the next tick. The header says LIVE because this
-     is the one real thing on the panel.
-
-     The one difference now: news mode opens the deck as "news" rather than
-     "1", which is the map alone at 40% of the bar. The rotating panels keep
-     their slots next to it — a live headline is not a reason to blank the
-     machine readouts. Only a scripted operation takes the whole strip. */
-  const bar = (id) => missionDeck.querySelector("#" + id)
-                   || missionDeck.querySelector(`[data-m="${id}"]`);
-  const mapEls = {panel: bar("mapPanel"), title: bar("mapTitle"), sub: bar("mapSub")};
-  let newsOwned = false;
-  const NEWS_TITLE = "NEWS WATCH \u25CF LIVE";     // LIVE: this one is not theater
-
-  function newsWatch(){
-    const busy = missions.active();
-    if (busy || !newsMarkerCount()){
-      if (!newsOwned) return;
-      newsOwned = false;
-      setNewsMode(false);
-      // a running mission closes its deck itself when it is done with it
-      if (!busy){ missionDeck.dataset.open = "0"; sizeAll(); }
-      return;
-    }
-    if (!newsOwned){
-      newsOwned = true;
-      setNewsMode(true);
-      mapEls.panel?.classList.remove("crit");     // not an alert, it is news
-      setTimeout(sizeAll, 240);                   // after the deck transition
-    }
-    // re-assert: the mission runner's delayed close can land after we opened
-    if (missionDeck.dataset.open !== "news"){
-      missionDeck.dataset.open = "news";
-      setTimeout(sizeAll, 240);
-    }
-    // header is rewritten only when it actually changes — this ticks every
-    // 600ms and the terminal next door does not need the extra reflow
-    const m = currentNewsMarker(clock);
-    const sub = m ? m.place : "LIVE FEED";
-    if (mapEls.title && mapEls.title.textContent !== NEWS_TITLE)
-      mapEls.title.textContent = NEWS_TITLE;
-    if (mapEls.sub && mapEls.sub.textContent !== sub) mapEls.sub.textContent = sub;
-  }
-
-  /* ── sniffer wiring: scenario always, mission only on a long leash ── */
-
-  const sniff = createSniffer(key => {
+  const sniff = createSniffer((key, marker, call) => {
     lastSniff = Date.now();
+    logActivity(call || marker);
     setScenario(key);
-    const now = Date.now();
-    // one mission at a time, and no more than one per 45s, or a busy session
-    // turns the terminal into a disco
-    const pool = MISSION_FOR[key];
-    if (!pool || missions.active() || now - lastMission < 45000) return;
-    if (Math.random() < .5){
-      const pick = pool[Math.floor(Math.random() * pool.length)];
-      // an unknown key is a no-op in missions.run, so a typo degrades quietly
-      lastMission = now; missions.run(pick);
-    }
   });
 
   /* ── loops ── */
@@ -888,8 +835,12 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
       return;
     }
     if (p.hdText){
-      // says MIC LIVE only while bytes are genuinely arriving
-      const s = micsource.live() ? p.titleLive : p.spec.title;
+      // the map's now-showing story, or MIC LIVE only while bytes are
+      // genuinely arriving. Written only when it actually changes — this runs
+      // once a frame and the terminal next door does not need the reflow.
+      let s;
+      try { s = p.spec.head ? p.spec.head(clock) : (micsource.live() ? p.titleLive : p.spec.title); }
+      catch (_) { s = p.spec.title; }
       if (p.hdText.textContent !== s) p.hdText.textContent = s;
     }
   }
@@ -897,8 +848,6 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
   function frame(now){
     clock = (now - t0)/1000;
     eachRegion(rg => rg.mounted.forEach(p => paintPanel(rg, p)));
-    try { missions.paint(clock); }
-    catch (e) { console.warn("[amigaterm] mission painter threw:", e); }
     raf = requestAnimationFrame(frame);
   }
 
@@ -907,27 +856,20 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
   let opIdx = 0, lastOpSwap = 0;
 
   function opTick(){
-    if (missions.active()){
-      const total = missions.total();
-      opPct = Math.min(100, opPct + 100/(total/180));
-      if (opPct >= 100) opPct = 0;
+    const avail = [];
+    for (const f of OP_METRICS){ const m = f(sys); if (m) avail.push(m); }
+    if (!avail.length){
+      // no readable telemetry: park it. The old fallback here was a bar
+      // ramping for no reason, which is worse than an empty one.
+      opPct = 0;
+      if (op.label) op.label.textContent = "STANDBY";
     } else {
-      const avail = [];
-      for (const f of OP_METRICS){ const m = f(sys); if (m) avail.push(m); }
-      if (!avail.length){
-        // no readable telemetry: park it. The old fallback here was a bar
-        // ramping for no reason, which is worse than an empty one.
-        opPct = 0;
-        if (!opLabelHold && op.label) op.label.textContent = "STANDBY";
-      } else {
-        const now = Date.now();
-        if (now - lastOpSwap > OP_SWAP_MS){ lastOpSwap = now; opIdx++; }
-        const m = avail[opIdx % avail.length];
-        opPct = Math.max(0, Math.min(100, m.pct));
-        if (!opLabelHold && op.label) op.label.textContent = m.label;
-      }
+      const now = Date.now();
+      if (now - lastOpSwap > OP_SWAP_MS){ lastOpSwap = now; opIdx++; }
+      const m = avail[opIdx % avail.length];
+      opPct = Math.max(0, Math.min(100, m.pct));
+      if (op.label) op.label.textContent = m.label;
     }
-    missions.progress(opPct);
     if (op.fill) op.fill.style.width = opPct.toFixed(0)+"%";
     // was random hex every 180ms; now it is the number the bar is showing,
     // and blank when there is no number to show
@@ -940,13 +882,13 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
     if (running) return;
     running = true;
     hudEl.hidden = false;
-    // the bar is permanent furniture now: it holds the bottom region, not
-    // only the occasional operation, so it opens with the HUD and closes with it
-    missionBarEl.dataset.open = "1";
+    // the bar is permanent furniture: it holds the bottom panel region, so it
+    // opens with the HUD and closes with it
+    barEl.dataset.open = "1";
     t0 = performance.now();
     eachRegion(rg => { rg.lastLayout = 0; });
     setScenario("idle");
-    missions.start();
+    eachRegion(rg => sizeObserver.observe(rg.el));
     sizeAll();
     raf = requestAnimationFrame(frame);
 
@@ -999,28 +941,12 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
        Both regions roll their own dice against their own hold timer, so the
        column and the bar drift apart instead of turning over together. */
     every(30000, () => {
-      if (missions.active()) return;
       const now = Date.now();
       if (scenarioKey !== "idle" && now - lastSniff > 45000){
         scenarioKey = "idle"; load = .35;
       }
       eachRegion(rg => { if (Math.random() < .30) relayout(rg, now); });
     });
-
-    /* Ambient operations. Without this the map and the missile arcs only
-       ever appear when the sniffer sees a Claude Code tool call, so a plain
-       shell session never sees them at all. Now the theater runs on its own
-       and Claude activity merely biases which operation gets staged. */
-    every(38000, () => {
-      if (missions.active() || Date.now() - lastMission < 38000) return;
-      if (Math.random() < .55){
-        lastMission = Date.now();
-        missions.run(MISSION_KEYS[Math.floor(Math.random() * MISSION_KEYS.length)]);
-      }
-    });
-
-    every(600, newsWatch);                               // map's idle mode
-    every(600, bottomTick);                              // bar hand-off
 
     /* Ambient requesters. p=0.12 every 30s puts the mean near four minutes,
        and the cooldown in spawnRequester keeps that from clustering. Kept
@@ -1029,27 +955,22 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
        level — there is no intensity slider to scale off any more. */
     every(30000, () => { if (Math.random() < .12) spawnRequester(); });
     every(20000, () => { if (Math.random() < cfg.glitchRate/100*.12) fx.guru(); });
-    addEventListener("resize", sizeAll);
   }
 
   function stop(){
     if (!running) return;
     running = false;
     cancelAnimationFrame(raf); raf = 0;
+    if (sizeRaf){ cancelAnimationFrame(sizeRaf); sizeRaf = 0; }
     timers.splice(0).forEach(clearInterval);
-    removeEventListener("resize", sizeAll);
-    missions.stop();
+    sizeObserver.disconnect();
     micsource.stop();          // F10 off must not leave the mic open
-    newsOwned = false;
-    setNewsMode(false);
     eachRegion(teardown);      // both regions, pins included: no orphan intervals
     openReqs.forEach(el => el.remove());
     openReqs.clear();
     hudEl.hidden = true;
-    missionBarEl.dataset.open = "0";
-    missionDeck.dataset.open = "0";
-    opLabelHold = null;
-    if (op.label){ op.label.textContent = "STANDBY"; op.label.classList.remove("crit"); }
+    barEl.dataset.open = "0";
+    if (op.label) op.label.textContent = "STANDBY";
     if (op.fill) op.fill.style.width = "0%";
     if (op.hex) op.hex.textContent = "";
   }
@@ -1074,17 +995,15 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
     },
     setEnabled(on){ on ? start() : stop(); },
     setConfig(c){ cfg = normCfg(c); },
-    /* Manual shuffle. Re-picks BOTH regions' layouts and resets both hold
-       timers, so an explicit shuffle is never swallowed by the 45s minimum
-       that stops automatic switching looking like a slideshow. The bottom
-       region declines while an operation owns the bar and re-picks when it
-       gets its slots back. */
+    /* Manual shuffle (F8). Re-picks BOTH regions' layouts and resets both
+       hold timers, so an explicit shuffle is never swallowed by the 45s
+       minimum that stops automatic switching looking like a slideshow, and
+       neither region can decline. Pinned panels stay where they are — that
+       is what the pin is for. */
     shuffle(){
       if (!running) return;
       const now = Date.now();
       eachRegion(rg => relayout(rg, now, true));
-    },
-    runMission(key){ if (running && MISSION_KEYS.includes(key)) missions.run(key); },
-    missionKeys: MISSION_KEYS
+    }
   };
 }

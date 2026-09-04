@@ -249,8 +249,6 @@ body{
   font-family:var(--chrome);font-size:7px;letter-spacing:.6px;
   padding:6px 7px;display:flex;justify-content:space-between;gap:8px;align-items:center;
 }
-.panel.crit{border-color:#FF4444}
-.panel.crit .panel-hd{background:#FF4444}
 /* Pin gadget. Sits where the activity dot used to; a filled diamond means
    pinned. Deliberately the same 7px visual weight so the header does not
    grow, and hit area is padded out to something clickable. */
@@ -268,7 +266,6 @@ body{
 .panel.pinned{border-color:#FFE9B0}
 .panel.pinned .panel-hd{background:#FFE9B0}
 
-.panel-hd .dot{width:7px;height:7px;background:#000;animation:blink 1.4s steps(1) infinite}
 .panel-bd{
   flex:1 1 auto;min-height:0;overflow:hidden;padding:7px 8px;
   font-family:var(--term);font-size:15px;line-height:1.18;
@@ -295,49 +292,20 @@ body{
   transition:width .28s linear}
 .gauge .val{flex:0 0 34px;text-align:right;font-size:14px}
 
-/* ── mission bar ───────────────────────────────────────────── */
+/* ── bottom panel bar ─────────────────────────────────────── */
+/* The HUD's second panel region: same registry, same rules as the side
+   column, laid out horizontally across the full window width. It opens and
+   closes with the HUD and holds nothing else. */
 
-.missionbar{
+.panelbar{
   flex:0 0 auto;display:flex;gap:6px;
   padding:0 6px 6px 6px;background:var(--wb-black);
   height:190px;overflow:hidden;
   transition:height .22s steps(5), padding .22s steps(5);
 }
-.missionbar[data-open="0"]{height:0;padding-bottom:0}
-
-/* Two decks share the bar: the mission runner's own instruments and the
-   rotating bottom panel region. During an operation the mission deck takes
-   the whole strip; during NEWS WATCH it shrinks to the map alone and the
-   panels keep their slots beside it; the rest of the time it is gone. */
-.deck{display:flex;gap:6px;min-width:0;min-height:0}
-.deck[data-open="0"]{display:none}
-.deck.mission[data-open="1"]{flex:1 1 auto}
-.deck.mission[data-open="news"]{flex:0 0 40%}
-.deck.mission[data-open="news"] .log,
-.deck.mission[data-open="news"] .cd{display:none}
-.deck.panels{flex:1 1 auto}
-/* the region tears its panels down while an operation owns the bar; an empty
-   deck must not go on holding half the width */
-.deck.panels:empty{display:none}
-/* the bottom slots share the width evenly — a wide panel sets no basis */
-.deck.panels .panel{flex:1 1 0;min-width:0}
-.missionbar .map{flex:1 1 auto}
-.missionbar .log{flex:0 0 296px}
-.missionbar .cd{flex:0 0 178px}
-
-.cdbody{
-  display:flex;flex-direction:column;justify-content:center;
-  gap:5px;text-align:center;
-}
-.cdbig{
-  font-size:38px;line-height:1;color:#FFE9B0;
-  text-shadow:0 0 10px rgba(255,182,39,.7);
-}
-.cdbig.bad{color:#FF6B6B;text-shadow:0 0 12px rgba(255,60,60,.8)}
-.cdsub{font-family:var(--chrome);font-size:6px;letter-spacing:.6px;color:var(--amber-dim)}
-.cdbar{height:10px;background:#1A1206;border:1px solid var(--amber-dim);position:relative;overflow:hidden;margin-top:4px}
-.cdbar i{position:absolute;inset:0 auto 0 0;width:0%;background:var(--amber);transition:width .2s linear}
-.cdbar.bad i{background:#FF4444}
+.panelbar[data-open="0"]{height:0;padding-bottom:0}
+/* the bar's slots share the width evenly — a wide panel sets no basis */
+.panelbar .panel{flex:1 1 0;min-width:0}
 
 /* ── operation strip ───────────────────────────────────────── */
 
@@ -352,7 +320,6 @@ body{
   color:#000;background:var(--amber);padding:5px 7px;
   flex:0 0 auto;min-width:210px;text-align:center;
 }
-.op-label.crit{background:#FF4444;color:#000}
 .op-bar{flex:1 1 auto;height:12px;background:#1A1206;border:1px solid var(--amber-dim);position:relative;overflow:hidden}
 .op-fill{position:absolute;inset:0 auto 0 0;width:0%;
   background:linear-gradient(to right,var(--amber-dim),var(--amber));transition:width .2s linear}
@@ -407,17 +374,15 @@ body{
 .req-ft{display:flex;gap:8px;padding:10px 12px;justify-content:center}
 
 @media (max-width:1100px){
-  .missionbar .log{flex:0 0 220px}
-  .missionbar .cd{display:none}
   /* two wide slots is the most that stays readable down here */
-  .deck.panels .panel:nth-child(n+3){display:none}
+  .panelbar .panel:nth-child(n+3){display:none}
 }
 @media (max-width:900px){
   .workarea{flex-direction:column}
   .hud{flex:0 0 190px;flex-direction:row;margin:0 6px 6px 6px}
-  .missionbar{height:150px}
+  .panelbar{height:150px}
 }
 @media (prefers-reduced-motion:reduce){
-  .screenwrap,.rollbar,.cursor,.guru,.panel,.requester,.panel-hd .dot{animation:none}
+  .screenwrap,.rollbar,.cursor,.guru,.panel,.requester{animation:none}
   .screenwrap.glitching #term{animation:none}
 }

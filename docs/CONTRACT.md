@@ -23,7 +23,7 @@ effect loses.
 | A — main | `package.json`, `main.js`, `preload.js`, `config.json`, `.gitignore` |
 | B — renderer | `index.html`, `style.css`, `renderer.js` |
 | C — effects | `effects.js` |
-| D — hud | `hud.js`, `missions.js`, `worldmap.js` |
+| D — hud | `hud.js`, `worldmap.js` |
 | E — test/docs | `test.js`, `README.md`, `scripts/fetch-font.js` |
 
 Never edit another agent's file. Never create a file outside your column.
@@ -71,12 +71,11 @@ export function initEffects({ screenEl, getSourceCanvas, config }) {
 ### hud.js (Agent D provides, B consumes)
 
 ```js
-export function initHud({ hudEl, missionBarEl, config, effects }) {
+export function initHud({ hudEl, barEl, config, effects }) {
   return {
     feed(chunk),      // called with every PTY chunk, AFTER xterm.write
     setEnabled(bool), // F10 toggle
     setConfig(cfg),
-    runMission(key)   // manual trigger
   };
 }
 ```
@@ -109,8 +108,8 @@ producing `NaN` in a CSS value.
 
 ## Hotkeys (Agent B owns the bindings)
 
-`F9` cycle calm/medium/max · `F10` toggle HUD · `Ctrl+Shift+C/V` copy/paste ·
-`Ctrl+Shift+M` run a random mission. Everything else goes to the PTY untouched.
+`F10` toggle HUD · `Ctrl+Shift+C/V` copy/paste ·
+`F7` toggle gadget bar &middot; `F8` shuffle panels. Everything else goes to the PTY untouched.
 
 ## House style
 

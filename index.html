@@ -45,30 +45,9 @@
       <div class="hud" id="hud"></div>
     </div>
 
-    <!-- The bottom bar is two decks: the mission runner's own instruments,
-         and the rotating bottom panel region hud.js fills. One deck at a
-         time during an operation; side by side during NEWS WATCH. -->
-    <div class="missionbar" id="missionbar" data-open="0">
-      <div class="deck mission" id="missionDeck" data-open="0">
-        <div class="panel map" id="mapPanel">
-          <div class="panel-hd"><span id="mapTitle">GLOBAL SITUATION DISPLAY</span><span id="mapSub">NORAD / DEFCON 5</span></div>
-          <div class="panel-bd pad0"><canvas id="mapCanvas"></canvas></div>
-        </div>
-        <div class="panel log">
-          <div class="panel-hd"><span>MISSION LOG</span><span class="dot"></span></div>
-          <div class="panel-bd" id="logBody"></div>
-        </div>
-        <div class="panel cd" id="cdPanel">
-          <div class="panel-hd"><span id="cdTitle">STATUS</span><span id="cdCode">0000</span></div>
-          <div class="panel-bd cdbody">
-            <div class="cdbig" id="cdBig">--:--</div>
-            <div class="cdsub" id="cdSub">STANDBY</div>
-            <div class="cdbar" id="cdBar"><i></i></div>
-          </div>
-        </div>
-      </div>
-      <div class="deck panels" id="bottomDeck" data-open="1"></div>
-    </div>
+    <!-- The HUD's second panel region. Same registry and the same rules as
+         the side column; hud.js fills it. -->
+    <div class="panelbar" id="panelbar" data-open="0"></div>
 
     <div class="opstrip">
       <span class="op-label" id="opLabel">STANDBY</span>
@@ -78,13 +57,9 @@
     </div>
 
     <div class="gadgetbar">
-      <span class="cap" style="margin-left:8px">FX</span>
-      <button class="btn" id="bGlitch">GLITCH</button>
-      <button class="btn" id="bGuru">GURU</button>
-      <button class="btn" id="bBoot">REBOOT</button>
-      <button class="btn" id="bHud" aria-pressed="true">HUD</button>
+      <button class="btn" id="bHud" aria-pressed="true" style="margin-left:8px">HUD</button>
       <span class="sep"></span>
-      <span class="hint">F7 bar &middot; F8 shuffle &middot; F10 hud &middot; Ctrl+Shift+C/V copy &middot; Ctrl+Shift+M mission</span>
+      <span class="hint">F7 bar &middot; F8 shuffle &middot; F10 hud &middot; Ctrl+Shift+C/V copy</span>
     </div>
 
   </div>

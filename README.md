@@ -33,7 +33,7 @@ fall back to the defaults below rather than reaching CSS as `NaN`.
 | `shellArgs` | string[] | `[]` | Extra args for the shell |
 | `fontSize` | number | `16` | Terminal font size, px (6–72) |
 | `bootSequence` | bool | `true` | Play the Kickstart boot animation |
-| `hud` | bool | `true` | Show the HUD column and bottom strip |
+| `hud` | bool | `true` | Show the HUD column and bottom panel bar |
 | `effects.scanlines` | 0–100 | `45` | CRT scanline density |
 | `effects.bloom` | 0–100 | `30` | Phosphor glow |
 | `effects.curvature` | 0–100 | `15` | Screen barrel curve |
@@ -75,17 +75,15 @@ rather than leaving the mic indicator burning.
 | `Ctrl+Shift+C` / `Ctrl+Shift+V` | Copy / paste |
 | `Ctrl+Shift+L` | Shuffle panels |
 | `Ctrl+Shift+B` | Hide / show the gadget bar |
-| `Ctrl+Shift+M` | Run a random HUD mission |
 
 Every other key goes straight to the PTY untouched — including a bare
 `Ctrl-C`. Click the ◇ in any panel header to pin it; a pinned panel survives
-rotation and shuffle. Side column holds 3 pins, the bottom deck 2.
+rotation, scenario changes and shuffle. Side column holds 3 pins, the bottom
+bar 2. `WORLD MAP` is an ordinary panel and pins like the rest.
 
-There is no effect-intensity switch: the app runs at one fixed level. The
-individual `effects.*` values in `config.json` still work if you want to
-retune.
-
-Everything else goes to the PTY untouched.
+There is no effect-intensity switch and no manual effect triggers: the app
+runs at one fixed level and the glitches fire ambiently. The individual
+`effects.*` values in `config.json` still work if you want to retune.
 
 ## Font
 
@@ -167,10 +165,13 @@ You must redo this after every `npm install` that replaces Electron.
 
 ## What is real and what is theatre
 
-The HUD deliberately mixes both, and the rule is that a real-looking number
-must be real. Anything sourced from the machine is labelled `LIVE`; when a
-source is unavailable the panel says so or shows `----`. It never falls back
-to an invented figure under a real-looking label.
+The HUD is panels and nothing else — one registry, two regions (the side
+column and the bottom bar), the same rotation, pinning and `F8` shuffle in
+both. It deliberately mixes real and invented, and the rule is that a
+real-looking number must be real. Anything sourced from the machine is
+labelled `LIVE`; when a source is unavailable the panel says so or shows
+`----`. It never falls back to an invented figure under a real-looking
+label.
 
 **Real:**
 
@@ -180,13 +181,14 @@ to an invented figure under a real-looking label.
 | `CPU CORES`, `SYSTEM`, `STORAGE`, gauges | `os.cpus()` deltas, `os.freemem()`, `os.loadavg()`, `fs.statfs()`, `/sys/class/thermal`, `nvidia-smi`, battery |
 | `CHRONO` | Real clock, date and world clocks |
 | `WAVEFORM` / `SPECTRUM` | Real microphone, only when `micEqualizer: true` |
-| `WIRE` / `NEWS WATCH` | Live headlines via `claude -p`, geolocated onto the map |
-| Operation strip | Real CPU / memory / disk / GPU when idle |
+| `WIRE` / `WORLD MAP` | Live headlines via `claude -p`; the map plots the geolocated ones and traces between them |
+| Operation strip | Real CPU / memory / disk / GPU — `STANDBY` at zero when there is none |
+| `CLAUDE ACTIVITY` | The tool calls the sniffer actually saw, wall-clock stamped |
 | Scenario switching | Sniffed from real Claude Code tool calls in the PTY stream |
 
-**Theatre:** all 19 missions, hex dumps, port scans, DF0 track, telegrams,
-reactor rods, SIGINT waterfall, radar, globe, plasma, DNA, vectors, the
-AmigaDOS log, requesters and Guru Meditations.
+**Theatre:** hex dumps, port scans, DF0 track, telegrams, reactor rods,
+SIGINT waterfall, radar, globe, plasma, DNA, vectors, the AmigaDOS log,
+requesters and Guru Meditations.
 
 One honest edge case: `DEEP SPACE NET` uses real spacecraft, real DSN dish
 names and correct light-time arithmetic, but the distances are constants with
