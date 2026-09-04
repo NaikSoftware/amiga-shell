@@ -144,11 +144,21 @@ body{
 /* xterm host. Padding here is read by the fit addon, so it survives resize. */
 #term{
   position:absolute;inset:0;padding:16px 20px;
-  /* ponytail: phosphor bloom as a CSS drop-shadow over the whole canvas —
-     one line and GPU composited, but it re-filters on every canvas repaint.
-     Move it to an additive bloom canvas in effects.js if heavy output
-     (cat of a big file, htop) stutters. */
-  filter:drop-shadow(0 0 var(--bloom-r) rgba(59,255,110,var(--bloom-op)));
+  /* No filter here. A drop-shadow on this container glows the ALPHA
+     SILHOUETTE of everything inside it, which includes cell BACKGROUNDS —
+     so any TUI that fills a cell background (Claude Code's input box border,
+     its dimmed regions, anything using reverse video) grew a hard glowing
+     rectangle around the fill instead of a phosphor glow around the text.
+     The bloom is a text-shadow on the rows below, which affects glyphs only. */
+}
+
+/* Phosphor bloom, glyph-only. Inherited by every row span, so background
+   fills stay crisp while the text glows.
+   ponytail: DOM-renderer path. The opt-in WebGL renderer draws to a canvas
+   with no text nodes, so this does nothing there — that path would need the
+   additive bloom canvas in effects.js. */
+.xterm .xterm-rows{
+  text-shadow:0 0 var(--bloom-r) rgba(59,255,110,var(--bloom-op));
 }
 #term .xterm{width:100%;height:100%}
 .xterm .xterm-viewport{background-color:transparent!important;scrollbar-width:none}
