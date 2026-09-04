@@ -300,6 +300,10 @@ try {
    one log in the HUD that is not fiction: every line is a tool call that
    really came down the PTY. Module-level so the CLAUDE ACTIVITY panel can
    rotate out and back without losing the history. */
+/* .panel-bd is 15px/1.18 => a ~17.7px line box. The old code divided by 18,
+   which rounds the wrong way and renders one row more than fits. */
+const LINE_PX = 17.7;
+
 const ACTIVITY_CAP = 40;
 const activity = [];
 function logActivity(text){
@@ -633,15 +637,23 @@ export function initHud({ hudEl, barEl, config, effects }){
      at the bottom, wall-clock stamped. Nothing is generated here — an empty
      history says so rather than inventing traffic to fill the panel. */
   if (spec.kind === "activity"){
+    /* Newest FIRST. The rows are clipped by `overflow:hidden`, and the row
+       count can only ever be an estimate of how many fit — so whichever end
+       is at the bottom is the end that gets cut. For a log of what just
+       happened, the newest line is the one that must never be the casualty,
+       so it sits at the top and older entries fall off the bottom.
+       The row estimate is also deliberately conservative (a spare row) for
+       the same reason: overshooting hides a line, undershooting shows one
+       fewer. */
     const paint = () => {
-      const cap = Math.max(3, Math.floor(bd.clientHeight / 18));
+      const cap = Math.max(3, Math.floor(bd.clientHeight / LINE_PX) - 1);
       if (!activity.length){
         bd.innerHTML = `<span class="fade">  AWAITING CLAUDE CODE...</span>`;
         return;
       }
-      const rows = activity.slice(-cap);
+      const rows = activity.slice(-cap).reverse();
       bd.innerHTML = rows.map((l, i) =>
-        i === rows.length - 1 ? `<span class="hot">${esc(l)}</span>` : esc(l)).join("\n");
+        i === 0 ? `<span class="hot">${esc(l)}</span>` : esc(l)).join("\n");
     };
     paint();
     p.timer = setInterval(paint, spec.rate || 1000);

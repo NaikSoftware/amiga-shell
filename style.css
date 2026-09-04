@@ -263,8 +263,10 @@ body{
 }
 .panel-hd .pin:hover{color:#FFE9B0;background:#000}
 .panel-hd .pin:focus-visible{outline:1px solid #000;outline-offset:1px}
-.panel.pinned{border-color:#FFE9B0}
-.panel.pinned .panel-hd{background:#FFE9B0}
+/* A pinned panel is marked by its gadget alone (filled diamond). Recolouring
+   the border and header made pinned panels read as a different KIND of panel
+   rather than the same panel in a different state, and with two or three pins
+   up the column looked like two competing colour schemes. */
 
 .panel-bd{
   flex:1 1 auto;min-height:0;overflow:hidden;padding:7px 8px;
