@@ -1,0 +1,366 @@
+/* AmigaTerm — Workbench 1.3 chrome over a green-phosphor CRT.
+   Ported from prototype.html; the two deliberate differences are the
+   frameless-window drag regions on the title bar and the xterm host
+   replacing the prototype's .term div. */
+
+/* ponytail: guessing at the filename scripts/fetch-font.js lands on — the
+   src list falls through to the next candidate, and out to Ubuntu Mono if
+   none of them exist. Fix the list, not the stack, if the name changes. */
+@font-face{
+  font-family:"Topaz";
+  src:url("fonts/TopazPlus_a1200.ttf") format("truetype"),
+      url("fonts/Topaz_a1200.ttf") format("truetype"),
+      url("fonts/TopazPlus.ttf") format("truetype"),
+      url("fonts/Topaz.ttf") format("truetype");
+  font-display:swap;
+}
+
+:root{
+  --wb-blue:#0055AA;
+  --wb-blue-dk:#003A75;
+  --wb-orange:#FF8800;
+  --wb-white:#FFFFFF;
+  --wb-black:#000000;
+
+  --ph:#3BFF6E;
+  --ph-dim:#1B7A38;
+  --screen:#07110A;
+
+  --amber:#FFB627;
+  --amber-dim:#8A6212;
+  --guru:#FF2A2A;
+
+  --scan-op:.30;
+  --bloom-r:5px;
+  --bloom-op:.55;
+  --flick-amp:.030;
+  --flick-dur:5.5s;
+  --curve:14px;
+  --vig-op:.72;
+
+  --chrome:"Press Start 2P","Courier New",monospace;
+  --term:"Topaz","VT323","Ubuntu Mono",monospace;
+}
+
+*{box-sizing:border-box}
+
+body{
+  background:var(--wb-blue);
+  color:var(--wb-white);
+  font-family:var(--term);
+  height:100vh;
+  margin:0;
+  padding:0;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}
+
+/* ── Workbench desktop ─────────────────────────────────────── */
+
+.menubar{
+  flex:0 0 auto;
+  background:var(--wb-white);
+  color:var(--wb-black);
+  font-family:var(--chrome);
+  font-size:8px;
+  letter-spacing:.5px;
+  padding:7px 10px;
+  display:flex;gap:18px;align-items:center;
+  border-bottom:2px solid var(--wb-black);
+}
+.menubar .grow{flex:1}
+.menubar .mem{color:var(--wb-blue-dk)}
+
+.desktop{
+  flex:1 1 auto;min-height:0;padding:12px;
+  display:flex;position:relative;
+}
+
+.window{
+  flex:1 1 auto;min-width:0;
+  display:flex;flex-direction:column;
+  background:var(--wb-blue);
+  border:2px solid var(--wb-white);
+  outline:2px solid var(--wb-black);
+  box-shadow:0 0 0 2px var(--wb-blue-dk);
+}
+
+.titlebar{
+  flex:0 0 auto;display:flex;align-items:stretch;
+  background:var(--wb-orange);
+  border-bottom:2px solid var(--wb-white);
+  font-family:var(--chrome);font-size:8px;color:var(--wb-black);
+  /* frameless Electron window: the Amiga title bar is the real drag handle */
+  -webkit-app-region:drag;
+  -webkit-user-select:none;user-select:none;
+}
+.title{
+  flex:1 1 auto;min-width:0;padding:8px 10px;letter-spacing:.5px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.title b{font-weight:400;color:var(--wb-blue-dk)}
+.gadget{
+  flex:0 0 auto;width:30px;display:grid;place-items:center;
+  border-left:2px solid var(--wb-white);
+  background:var(--wb-orange);color:var(--wb-black);
+  cursor:pointer;font-size:9px;
+  -webkit-app-region:no-drag;   /* gadgets stay clickable inside the drag region */
+}
+.gadget:hover{background:var(--wb-black);color:var(--wb-orange)}
+.gadget:focus-visible{outline:2px solid var(--wb-white);outline-offset:-4px}
+.gadget.depth{border-left:0;border-right:2px solid var(--wb-white)}
+
+.workarea{flex:1 1 auto;min-height:0;display:flex;background:var(--wb-black)}
+
+/* ── CRT screen ────────────────────────────────────────────── */
+
+/* ponytail: faked curvature via mask+vignette; upgrade to a WebGL barrel
+   pass over the xterm canvas if this reads flat on a real monitor */
+.screenwrap{
+  flex:1 1 auto;min-width:0;position:relative;
+  background:var(--screen);
+  border-radius:var(--curve);
+  overflow:hidden;margin:6px;
+  transform:perspective(1400px) rotateX(.35deg);
+  animation:flicker var(--flick-dur) infinite steps(24);
+}
+@keyframes flicker{
+  0%,100%{filter:brightness(1)}
+  47%{filter:brightness(calc(1 - var(--flick-amp)))}
+  49%{filter:brightness(calc(1 + var(--flick-amp)))}
+  51%{filter:brightness(calc(1 - var(--flick-amp)))}
+  78%{filter:brightness(calc(1 + var(--flick-amp)))}
+}
+
+/* xterm host. Padding here is read by the fit addon, so it survives resize. */
+#term{
+  position:absolute;inset:0;padding:16px 20px;
+  /* ponytail: phosphor bloom as a CSS drop-shadow over the whole canvas —
+     one line and GPU composited, but it re-filters on every canvas repaint.
+     Move it to an additive bloom canvas in effects.js if heavy output
+     (cat of a big file, htop) stutters. */
+  filter:drop-shadow(0 0 var(--bloom-r) rgba(59,255,110,var(--bloom-op)));
+}
+#term .xterm{width:100%;height:100%}
+.xterm .xterm-viewport{background-color:transparent!important;scrollbar-width:none}
+.xterm .xterm-viewport::-webkit-scrollbar{display:none}
+
+.cursor{
+  display:inline-block;width:.55em;height:1em;background:var(--ph);
+  vertical-align:-.14em;animation:blink 1.06s steps(1) infinite;
+}
+@keyframes blink{0%,50%{opacity:1}50.01%,100%{opacity:0}}
+
+.layer{position:absolute;inset:0;pointer-events:none}
+.scanlines{
+  background:repeating-linear-gradient(to bottom,
+    rgba(0,0,0,.55) 0px,rgba(0,0,0,.55) 1px,
+    rgba(0,0,0,0) 1px,rgba(0,0,0,0) 3px);
+  opacity:var(--scan-op);mix-blend-mode:multiply;
+}
+.rollbar{
+  background:linear-gradient(to bottom,
+    rgba(255,255,255,0) 0%,rgba(120,255,160,.055) 45%,
+    rgba(120,255,160,.10) 50%,rgba(120,255,160,.055) 55%,
+    rgba(255,255,255,0) 100%);
+  height:22%;inset:auto 0 auto 0;
+  animation:roll 7.5s linear infinite;
+}
+@keyframes roll{from{top:-25%}to{top:105%}}
+.vignette{
+  background:radial-gradient(ellipse 118% 112% at 50% 50%,
+    rgba(0,0,0,0) 52%,rgba(0,0,0,.55) 82%,rgba(0,0,0,.95) 100%);
+  opacity:var(--vig-op);border-radius:var(--curve);
+}
+.glare{background:radial-gradient(ellipse 46% 30% at 28% 12%,
+  rgba(190,255,210,.055) 0%,rgba(0,0,0,0) 70%)}
+
+/* effects.js owns the glitch overlay canvas; these are its styling hooks */
+.glitchlayer{
+  position:absolute;inset:0;pointer-events:none;opacity:0;
+  font-family:var(--term);font-size:19px;line-height:1.22;
+  padding:16px 20px;white-space:pre-wrap;overflow:hidden;
+}
+.screenwrap.glitching .glitchlayer{opacity:1}
+.glitchlayer.r{color:rgba(255,40,40,.85);mix-blend-mode:screen}
+.glitchlayer.c{color:rgba(40,220,255,.85);mix-blend-mode:screen}
+.screenwrap.glitching #term{animation:slice .18s steps(3) infinite}
+@keyframes slice{
+  0%{clip-path:inset(0 0 0 0);transform:translateX(0)}
+  33%{clip-path:inset(18% 0 46% 0);transform:translateX(-7px)}
+  66%{clip-path:inset(62% 0 12% 0);transform:translateX(9px)}
+  100%{clip-path:inset(0 0 0 0);transform:translateX(0)}
+}
+
+.boot{
+  position:absolute;inset:0;background:var(--screen);
+  padding:16px 20px;font-family:var(--term);font-size:19px;line-height:1.3;
+  color:var(--ph);text-shadow:0 0 var(--bloom-r) rgba(59,255,110,var(--bloom-op));
+  white-space:pre-wrap;z-index:5;
+}
+.boot[hidden]{display:none}
+
+.guru{
+  position:absolute;top:0;left:0;right:0;z-index:9;
+  background:#000;border:4px solid var(--guru);padding:12px;text-align:center;
+  font-family:var(--term);font-size:20px;color:var(--guru);
+  animation:guruflash .82s steps(1) infinite;
+}
+.guru[hidden]{display:none}
+@keyframes guruflash{0%,50%{border-color:var(--guru)}50.01%,100%{border-color:#000}}
+
+/* ── panels (HUD column + mission bar share this) ──────────── */
+
+.panel{
+  flex:1 1 auto;min-height:0;min-width:0;
+  background:#0A0A06;
+  border:2px solid var(--amber-dim);
+  display:flex;flex-direction:column;
+  transform-origin:center;
+  animation:wbopen .2s steps(5);
+}
+.panel[data-grow="0"]{flex:0 0 auto}
+@keyframes wbopen{from{transform:scaleY(.05);opacity:.35}to{transform:scaleY(1);opacity:1}}
+.panel.closing{animation:wbclose .16s steps(4) forwards}
+@keyframes wbclose{from{transform:scaleY(1);opacity:1}to{transform:scaleY(.05);opacity:0}}
+
+.panel-hd{
+  flex:0 0 auto;background:var(--amber-dim);color:#000;
+  font-family:var(--chrome);font-size:7px;letter-spacing:.6px;
+  padding:6px 7px;display:flex;justify-content:space-between;gap:8px;align-items:center;
+}
+.panel.crit{border-color:#FF4444}
+.panel.crit .panel-hd{background:#FF4444}
+.panel-hd .dot{width:7px;height:7px;background:#000;animation:blink 1.4s steps(1) infinite}
+.panel-bd{
+  flex:1 1 auto;min-height:0;overflow:hidden;padding:7px 8px;
+  font-family:var(--term);font-size:15px;line-height:1.18;
+  color:var(--amber);text-shadow:0 0 4px rgba(255,182,39,.45);
+  font-variant-numeric:tabular-nums;white-space:pre;
+}
+.panel-bd.pad0{padding:0}
+.panel-bd .fade{opacity:.32}
+.panel-bd .hot{color:#FFE9B0}
+.panel-bd .bad{color:#FF6B6B}
+.panel-bd canvas{display:block;width:100%;height:100%;image-rendering:pixelated}
+
+.hud{
+  flex:0 0 300px;display:flex;flex-direction:column;gap:6px;
+  margin:6px 6px 6px 0;min-height:0;
+}
+.hud[hidden]{display:none}
+
+.gauge{display:flex;align-items:center;gap:7px;margin:3px 0}
+.gauge .lbl{flex:0 0 52px;font-family:var(--chrome);font-size:6px;letter-spacing:.4px;color:var(--amber-dim)}
+.gauge .bar{flex:1 1 auto;height:9px;background:#1A1206;border:1px solid var(--amber-dim);position:relative;overflow:hidden}
+.gauge .fill{position:absolute;inset:0 auto 0 0;width:20%;
+  background:repeating-linear-gradient(to right,var(--amber) 0 3px,#0A0A06 3px 5px);
+  transition:width .28s linear}
+.gauge .val{flex:0 0 34px;text-align:right;font-size:14px}
+
+/* ── mission bar ───────────────────────────────────────────── */
+
+.missionbar{
+  flex:0 0 auto;display:flex;gap:6px;
+  padding:0 6px 6px 6px;background:var(--wb-black);
+  height:190px;overflow:hidden;
+  transition:height .22s steps(5), padding .22s steps(5);
+}
+.missionbar[data-open="0"]{height:0;padding-bottom:0}
+.missionbar .map{flex:1 1 auto}
+.missionbar .log{flex:0 0 296px}
+.missionbar .cd{flex:0 0 178px}
+
+.cdbody{
+  display:flex;flex-direction:column;justify-content:center;
+  gap:5px;text-align:center;
+}
+.cdbig{
+  font-size:38px;line-height:1;color:#FFE9B0;
+  text-shadow:0 0 10px rgba(255,182,39,.7);
+}
+.cdbig.bad{color:#FF6B6B;text-shadow:0 0 12px rgba(255,60,60,.8)}
+.cdsub{font-family:var(--chrome);font-size:6px;letter-spacing:.6px;color:var(--amber-dim)}
+.cdbar{height:10px;background:#1A1206;border:1px solid var(--amber-dim);position:relative;overflow:hidden;margin-top:4px}
+.cdbar i{position:absolute;inset:0 auto 0 0;width:0%;background:var(--amber);transition:width .2s linear}
+.cdbar.bad i{background:#FF4444}
+
+/* ── operation strip ───────────────────────────────────────── */
+
+.opstrip{
+  flex:0 0 auto;display:flex;align-items:center;gap:10px;
+  background:#0A0A06;border-top:2px solid var(--wb-white);padding:8px 10px;
+  font-family:var(--term);font-size:16px;color:var(--amber);
+  font-variant-numeric:tabular-nums;
+}
+.op-label{
+  font-family:var(--chrome);font-size:7px;letter-spacing:.6px;
+  color:#000;background:var(--amber);padding:5px 7px;
+  flex:0 0 auto;min-width:210px;text-align:center;
+}
+.op-label.crit{background:#FF4444;color:#000}
+.op-bar{flex:1 1 auto;height:12px;background:#1A1206;border:1px solid var(--amber-dim);position:relative;overflow:hidden}
+.op-fill{position:absolute;inset:0 auto 0 0;width:0%;
+  background:linear-gradient(to right,var(--amber-dim),var(--amber));transition:width .2s linear}
+.op-hex{flex:0 0 auto;color:var(--amber-dim);letter-spacing:1px}
+
+/* ── gadget bar ────────────────────────────────────────────── */
+
+.gadgetbar{
+  flex:0 0 auto;display:flex;flex-wrap:wrap;gap:6px;align-items:center;
+  background:var(--wb-blue);border-top:2px solid var(--wb-white);padding:8px 10px;
+}
+.gadgetbar .cap{font-family:var(--chrome);font-size:7px;letter-spacing:.5px;color:var(--wb-white);margin-right:2px}
+.btn{
+  font-family:var(--chrome);font-size:7px;letter-spacing:.5px;
+  background:var(--wb-white);color:var(--wb-black);border:0;
+  border-top:2px solid #FFF;border-left:2px solid #FFF;
+  border-right:2px solid var(--wb-blue-dk);border-bottom:2px solid var(--wb-blue-dk);
+  padding:7px 9px;cursor:pointer;
+}
+.btn:hover{background:var(--wb-orange)}
+.btn:focus-visible{outline:2px solid var(--wb-orange);outline-offset:2px}
+.btn[aria-pressed="true"]{
+  background:var(--wb-black);color:var(--wb-orange);
+  border-top-color:var(--wb-blue-dk);border-left-color:var(--wb-blue-dk);
+  border-right-color:#FFF;border-bottom-color:#FFF;
+}
+.btn.red{background:#FFB3B3}
+.btn.red:hover{background:#FF4444;color:#FFF}
+.gadgetbar .sep{flex:1 1 auto}
+.gadgetbar .hint{font-family:var(--term);font-size:15px;color:#BFE3FF}
+
+/* ── floating requesters ───────────────────────────────────── */
+
+.requester{
+  position:absolute;z-index:40;min-width:252px;
+  background:var(--wb-blue);border:2px solid var(--wb-white);
+  outline:2px solid var(--wb-black);box-shadow:4px 4px 0 rgba(0,0,0,.45);
+  transform-origin:center;animation:wbopen .16s steps(4);
+}
+.requester.closing{animation:wbclose .14s steps(3) forwards}
+.requester.alert{background:#7A0F0F;border-color:#FF6B6B}
+.req-hd{
+  background:var(--wb-orange);color:var(--wb-black);
+  font-family:var(--chrome);font-size:7px;letter-spacing:.5px;padding:6px 8px;
+  border-bottom:2px solid var(--wb-white);display:flex;justify-content:space-between;gap:10px;
+}
+.requester.alert .req-hd{background:#FF6B6B}
+.req-bd{padding:12px 12px 6px;font-family:var(--term);font-size:17px;line-height:1.25;
+  color:var(--wb-white);text-align:center}
+.req-ft{display:flex;gap:8px;padding:10px 12px;justify-content:center}
+
+@media (max-width:1100px){
+  .missionbar .log{flex:0 0 220px}
+  .missionbar .cd{display:none}
+}
+@media (max-width:900px){
+  .workarea{flex-direction:column}
+  .hud{flex:0 0 190px;flex-direction:row;margin:0 6px 6px 6px}
+  .missionbar{height:150px}
+}
+@media (prefers-reduced-motion:reduce){
+  .screenwrap,.rollbar,.cursor,.guru,.panel,.requester,.panel-hd .dot{animation:none}
+  .screenwrap.glitching #term{animation:none}
+}

@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AmigaTerm</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap">
+<link rel="stylesheet" href="node_modules/@xterm/xterm/css/xterm.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="menubar">
+  <span>AmigaTerm 1.0</span>
+  <span class="mem">1,048,576 graphics mem</span>
+  <span class="mem">2,097,152 other mem</span>
+  <span class="grow"></span>
+  <span class="mem" id="clock">--:--:--</span>
+</div>
+
+<div class="desktop" id="desktop">
+  <div class="window">
+
+    <!-- The Electron window is frameless; this IS the title bar. -->
+    <div class="titlebar">
+      <div class="gadget depth" id="gDepth" title="Depth arrange" role="button" tabindex="0">&#9636;</div>
+      <div class="title">AmigaShell &nbsp;<b id="titleOp">~</b></div>
+      <div class="gadget" id="gShrink" title="Shrink" role="button" tabindex="0">&#9633;</div>
+      <div class="gadget" id="gZoom" title="Zoom" role="button" tabindex="0">&#9635;</div>
+      <div class="gadget" id="gClose" title="Close" role="button" tabindex="0">&#10005;</div>
+    </div>
+
+    <div class="workarea">
+      <div class="screenwrap" id="screenwrap">
+        <!-- the real terminal; xterm.js mounts inside -->
+        <div id="term"></div>
+        <div class="layer scanlines"></div>
+        <div class="layer rollbar"></div>
+        <div class="layer glare"></div>
+        <div class="layer vignette"></div>
+        <div class="boot" id="boot" hidden></div>
+        <div class="guru" id="guru" hidden>
+          Software Failure. &nbsp;Press left mouse button to continue.<br>
+          Guru Meditation #00000004.0000AAC0
+        </div>
+      </div>
+      <div class="hud" id="hud"></div>
+    </div>
+
+    <div class="missionbar" id="missionbar" data-open="0">
+      <div class="panel map" id="mapPanel">
+        <div class="panel-hd"><span id="mapTitle">GLOBAL SITUATION DISPLAY</span><span id="mapSub">NORAD / DEFCON 5</span></div>
+        <div class="panel-bd pad0"><canvas id="mapCanvas"></canvas></div>
+      </div>
+      <div class="panel log">
+        <div class="panel-hd"><span>MISSION LOG</span><span class="dot"></span></div>
+        <div class="panel-bd" id="logBody"></div>
+      </div>
+      <div class="panel cd" id="cdPanel">
+        <div class="panel-hd"><span id="cdTitle">STATUS</span><span id="cdCode">0000</span></div>
+        <div class="panel-bd cdbody">
+          <div class="cdbig" id="cdBig">--:--</div>
+          <div class="cdsub" id="cdSub">STANDBY</div>
+          <div class="cdbar" id="cdBar"><i></i></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="opstrip">
+      <span class="op-label" id="opLabel">STANDBY</span>
+      <span class="op-bar"><span class="op-fill" id="opFill"></span></span>
+      <span class="op-hex" id="opHex">0000 0000 0000</span>
+    </div>
+
+    <div class="gadgetbar">
+      <span class="cap">FX</span>
+      <button class="btn" data-preset="calm">CALM</button>
+      <button class="btn" data-preset="medium" aria-pressed="true">MEDIUM</button>
+      <button class="btn" data-preset="max">MAX</button>
+      <span class="cap" style="margin-left:8px">FX</span>
+      <button class="btn" id="bGlitch">GLITCH</button>
+      <button class="btn" id="bGuru">GURU</button>
+      <button class="btn" id="bBoot">REBOOT</button>
+      <button class="btn" id="bHud" aria-pressed="true">HUD</button>
+      <span class="sep"></span>
+      <span class="hint">F9 fx &middot; F10 hud &middot; Ctrl+Shift+C/V copy/paste &middot; Ctrl+Shift+M mission</span>
+    </div>
+
+  </div>
+</div>
+
+<script type="module" src="renderer.js"></script>
+</body>
+</html>

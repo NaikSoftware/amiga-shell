@@ -1,0 +1,14 @@
+{
+  "shell": null,
+  "shellArgs": [],
+  "fontSize": 16,
+  "bootSequence": true,
+  "hud": true,
+  "effects": {
+    "scanlines": 45,
+    "bloom": 30,
+    "curvature": 15,
+    "glitchRate": 8,
+    "flicker": 5
+  }
+}
