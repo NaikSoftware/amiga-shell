@@ -186,7 +186,10 @@ try {
   effects = initEffects({
     screenEl: $("screenwrap"),
     getSourceCanvas,
-    config: cfg.effects
+    /* Fixed level, with config.json still able to override any individual
+       value for anyone who wants to retune. The runtime switch is gone; the
+       knobs are not. */
+    config: { ...FX, ...(cfg.effects || {}) }
   });
   if (effects && effects.start) effects.start();
 } catch (e) {
@@ -207,25 +210,23 @@ if (amiga.shellError) {
   try { effects && effects.guru(); } catch (e) {}
 }
 
-/* ── intensity presets ─────────────────────────────────────── */
+/* ── intensity ─────────────────────────────────────────────────
+   One fixed level. The calm/medium/max switch existed to let the effects be
+   dialled down when they got in the way; the sensible middle setting is the
+   only one anyone actually wanted, so it is now simply what the app is.
+   config.json's per-effect 0-100 values still work for anyone who wants to
+   retune — this just removes the runtime switch and its UI. */
 
-const PRESETS = {
-  calm:   {scanlines:12, bloom:14, curvature:6,  glitchRate:1,  flicker:1},
-  medium: {scanlines:45, bloom:30, curvature:15, glitchRate:8,  flicker:5},
-  max:    {scanlines:88, bloom:78, curvature:34, glitchRate:34, flicker:26}
-};
-const order = ["calm", "medium", "max"];
-let presetIdx = 1;
+const FX = { scanlines: 45, bloom: 30, curvature: 15, glitchRate: 8, flicker: 5 };
 
-function setPreset(name){
-  if (!PRESETS[name]) return;
-  presetIdx = order.indexOf(name);
-  try { effects && effects.setConfig(PRESETS[name]); } catch (e) {}
-  document.querySelectorAll("[data-preset]").forEach(b =>
-    b.setAttribute("aria-pressed", String(b.dataset.preset === name)));
+/* The preset gadgets are gone. Remove them and only the caption that
+   labelled them, leaving the other gadget-bar captions intact. */
+for (const b of document.querySelectorAll("[data-preset]")) {
+  const cap = b.previousElementSibling;
+  if (cap && cap.classList.contains("cap") && /^FX$/i.test(cap.textContent.trim()))
+    cap.remove();
+  b.remove();
 }
-document.querySelectorAll("[data-preset]").forEach(b =>
-  b.addEventListener("click", () => setPreset(b.dataset.preset)));
 
 /* ── HUD toggle ────────────────────────────────────────────── */
 
@@ -243,6 +244,18 @@ if (cfg.hud === false) toggleHud(false);
 // scripts. A key it does not know is a no-op there, not a crash here.
 const MISSION_KEYS = ["kremlin", "icbm", "delworld", "gibson", "satellite"];
 /* Swap the HUD to a different layout for the current scenario, now. */
+/* Show/hide the blue Workbench gadget bar along the bottom. Inline display
+   rather than a class so it needs nothing from style.css, and the terminal
+   is refitted after because hiding the bar gives the screen more rows. */
+let gadgetBarHidden = false;
+function toggleGadgetBar(){
+  const bar = document.querySelector(".gadgetbar");
+  if (!bar) return;
+  gadgetBarHidden = !gadgetBarHidden;
+  bar.style.display = gadgetBarHidden ? "none" : "";
+  refit();
+}
+
 function shufflePanels(){
   try { hud && hud.shuffle && hud.shuffle(); } catch (e) {}
 }
@@ -271,7 +284,7 @@ function pasteClipboard(){
    other key — including a bare Ctrl-C — falls straight through to the PTY. */
 
 function hotkey(e){
-  if (e.key === "F9")  return () => setPreset(order[(presetIdx + 1) % order.length]);
+  if (e.key === "F7")  return toggleGadgetBar;
   if (e.key === "F10") return () => toggleHud();
   if (e.key === "F8")  return shufflePanels;
   if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey){
@@ -280,6 +293,7 @@ function hotkey(e){
       case "v": return pasteClipboard;
       case "m": return randomMission;
       case "l": return shufflePanels;
+      case "b": return toggleGadgetBar;
     }
   }
   return null;
