@@ -38,6 +38,7 @@
   --amber-dim:#8A6212;
   --guru:#FF2A2A;
 
+  --key-glow:0;
   --scan-op:.30;
   --bloom-r:5px;
   --bloom-op:.55;
@@ -180,6 +181,17 @@ body{
     rgba(0,0,0,0) 52%,rgba(0,0,0,.55) 82%,rgba(0,0,0,.95) 100%);
   opacity:var(--vig-op);border-radius:var(--curve);
 }
+/* Typing pulse. Driven by --key-glow, which effects.js decays to 0 and then
+   stops updating — at rest this layer is fully transparent and costs nothing.
+   Additive so it reads as the phosphor being driven harder, not as a white
+   wash over the text. */
+.keyflash{
+  background:radial-gradient(ellipse 80% 60% at 50% 62%,
+    rgba(120,255,170,.20) 0%, rgba(59,255,110,.06) 55%, rgba(0,0,0,0) 100%);
+  opacity:calc(var(--key-glow) * .85);
+  mix-blend-mode:screen;
+}
+
 .glare{background:radial-gradient(ellipse 46% 30% at 28% 12%,
   rgba(190,255,210,.055) 0%,rgba(0,0,0,0) 70%)}
 

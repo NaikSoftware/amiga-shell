@@ -13,5 +13,6 @@
   },
   "renderer": "dom",
   "cursorStyle": "block",
-  "cursorBlink": true
+  "cursorBlink": true,
+  "typingEffects": true
 }

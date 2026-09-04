@@ -262,6 +262,7 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
   const fx = effects || {glitch(){}, guru(){}};
   let cfg = normCfg(config);
   let running = false, raf = 0, t0 = performance.now(), clock = 0;
+  let typingBoost = 0, lastType = 0;
   let scenarioKey = "idle", load = .35, opPct = 0, lastLayout = 0, lastMission = 0, lastSniff = 0;
   const timers = [];
   const mounted = new Map();
@@ -523,11 +524,15 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
       if (op.hex) op.hex.textContent = `${hex(4)} ${hex(4)} ${hex(4)}`;
     });
 
-    every(130, () => {                                   // gauges + DF0 head
+    every(130, () => {
+      if (typingBoost > 0) typingBoost = Date.now() - lastType > 400
+        ? Math.max(0, typingBoost - .08) : typingBoost;                                   // gauges + DF0 head
       mounted.forEach(p => {
         if (p.spec.kind === "gauges"){
           p.gauge.forEach((v,i) => {
-            const target = load > .5 ? rnd(45,98) : rnd(8,42);
+            // typing pushes the bars up and they fall back on their own
+        const t = load > .5 ? rnd(45,98) : rnd(8,42);
+        const target = Math.min(99, t + typingBoost * 45);
             p.gauge[i] = v + (target - v)*.22;
             p.body.querySelector(`[data-g="${i}"]`).style.width = p.gauge[i].toFixed(0)+"%";
             p.body.querySelector(`[data-v="${i}"]`).textContent = Math.round(p.gauge[i]);
@@ -606,6 +611,14 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
     feed(chunk){
       if (!running) return;
       try { sniff(chunk); } catch (_) { /* theater only; never rethrow */ }
+    },
+    /* Keystrokes drive the gauges: typing spikes ENTROPY and the subsystem
+       bars, and they settle when you stop. Purely a decay on an existing
+       value — no timer of its own. */
+    typed(){
+      if (!running) return;
+      typingBoost = Math.min(1, typingBoost + .34);
+      lastType = Date.now();
     },
     setEnabled(on){ on ? start() : stop(); },
     setConfig(c){ cfg = normCfg(c); },

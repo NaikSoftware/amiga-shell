@@ -137,7 +137,21 @@ refit();
 
 let hud = null;
 
-term.onData(d => pty.write(d));
+/* Typing feedback. The keystroke reaches the PTY FIRST and unconditionally —
+   effects are strictly downstream of input, so a broken effect can never eat
+   or delay a character. Enter gets a harder kick: a brighter pulse and a
+   short glitch, so submitting a command feels like the machine did something.
+   Held keys (autorepeat) arrive as single chars and just keep the glow up. */
+term.onData(d => {
+  pty.write(d);
+  if (cfg.typingEffects === false) return;
+  try {
+    const enter = d === "\r" || d === "\n";
+    effects && effects.pulse(enter ? 1 : 0.28);
+    if (enter && effects) effects.glitch(70);
+    hud && hud.typed && hud.typed();
+  } catch (e) { /* effects are decoration; input already went through */ }
+});
 term.onBinary(d => pty.write(d));
 pty.onData(d => {
   term.write(d);                              // screen first, always

@@ -66,6 +66,7 @@ function normalizeConfig(raw) {
     cursorBlink: typeof r.cursorBlink === "boolean" ? r.cursorBlink : true,
     fontFamily: typeof r.fontFamily === "string" && r.fontFamily.trim() ? r.fontFamily.trim() : null,
     // live headline panel: costs tokens per refresh, so it is easy to disable
+    typingEffects: typeof r.typingEffects === "boolean" ? r.typingEffects : true,
     news: typeof r.news === "boolean" ? r.news : true,
     newsIntervalMinutes: Number.isFinite(Number(r.newsIntervalMinutes))
       ? Math.max(10, Math.min(720, Number(r.newsIntervalMinutes))) : 30,

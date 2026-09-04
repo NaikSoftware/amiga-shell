@@ -271,6 +271,9 @@ export function initEffects({ screenEl, getSourceCanvas, config } = {}) {
   }
 
   function stop() {
+    if (glowRaf !== null) { cancelAnimationFrame(glowRaf); glowRaf = null; }
+    glow = 0;
+    document.documentElement.style.setProperty("--key-glow", "0");
     running = false;
     if (timer !== null) { clearTimeout(timer); timer = null; }
     endBurst();
@@ -322,5 +325,32 @@ export function initEffects({ screenEl, getSourceCanvas, config } = {}) {
     applyCfg(cfg);
   }
 
-  return { glitch, guru, setConfig, start, stop };
+  /* ── typing feedback ─────────────────────────────────────────
+     A keystroke bumps --key-glow; a rAF decays it back to 0 and then stops.
+     Nothing runs between keystrokes — same discipline as the glitch engine.
+     The value drives a phosphor bloom layer in style.css, so the screen
+     brightens under your hands and settles when you stop, the way a real
+     tube does. Scaled by the bloom slider so CALM stays calm. */
+  let glow = 0, glowRaf = null;
+
+  function decayGlow() {
+    glow *= 0.86;
+    if (glow < 0.01) {
+      glow = 0; glowRaf = null;
+      document.documentElement.style.setProperty("--key-glow", "0");
+      return;                                   // stop: no idle rAF
+    }
+    document.documentElement.style.setProperty("--key-glow", glow.toFixed(3));
+    glowRaf = requestAnimationFrame(decayGlow);
+  }
+
+  function pulse(strength) {
+    if (reduced()) return;
+    const scale = clamp(cfg.bloom, "bloom") / 100;
+    glow = Math.min(1, glow + (Number(strength) || 0.3) * (0.35 + scale * 0.9));
+    document.documentElement.style.setProperty("--key-glow", glow.toFixed(3));
+    if (glowRaf === null) glowRaf = requestAnimationFrame(decayGlow);
+  }
+
+  return { glitch, guru, setConfig, start, stop, pulse };
 }
