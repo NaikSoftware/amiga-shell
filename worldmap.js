@@ -79,7 +79,7 @@ export const CITY = {
    ever exists. */
 let newsMarkers = [];
 let newsMode = false;
-const NEWS_DWELL = 6;                        // seconds per story on the label
+const NEWS_DWELL = 20;                        // seconds per story on the label
 
 /* Replaces the marker set. Coordinates arrive already clamped from main.js's
    parser; what is left is map-specific — drop a story that would land on top

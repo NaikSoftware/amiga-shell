@@ -133,7 +133,7 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) =>
   ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
 const PANELS = {
-  news: {title:"WIRE / UKRAINE", kind:"news", rate:4000},
+  news: {title:"WIRE / UKRAINE", kind:"news", rate:15000},
   nettrace:   {title:"NETTRACE",    kind:"lines",  gen:"portScan",    rate:110},
   sectordump: {title:"SECTOR DUMP", kind:"lines",  gen:"hexDump",     rate:70},
   neurallink: {title:"NEURAL LINK", kind:"lines",  gen:"cryptoKey",   rate:90},
@@ -370,16 +370,25 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
     op.label.classList.toggle("crit", !!crit);
   }
 
+  /* Minimum time a set of panels stays on screen, no matter what the stream
+     is doing. Claude Code emits tool calls every few seconds, and each one
+     changes the scenario — gating only on "same scenario" left every
+     Read->Edit->Bash sequence swapping the whole column, which reads as a
+     slideshow. The scenario (and the op strip, and load) still tracks the
+     stream immediately; only the PANELS are held. */
+  const LAYOUT_HOLD_MS = 45000;
+
   function setScenario(key){
     const next = key in LAYOUTS ? key : "idle";
     const now = Date.now();
-    // same scenario twice in a row (a run of Read calls) must not thrash the
-    // layout — re-pick at most every 6s
-    if (next === scenarioKey && now - lastLayout < 25000) return;
+    const changed = next !== scenarioKey;
     scenarioKey = next;
-    lastLayout = now;
     load = scenarioKey === "idle" ? .35 : 1;
     if (!missions.active()) setOp(null, false);
+
+    // hold the panels even across a scenario change
+    if (now - lastLayout < LAYOUT_HOLD_MS && mounted.size) return;
+    lastLayout = now;
     setLayout(pick(LAYOUTS[scenarioKey]));
     if (scenarioKey !== "idle" && !missions.active() && Math.random() < .25)
       setTimeout(spawnRequester, rnd(300,1400));
@@ -541,10 +550,14 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
        every 26s at 30% odds puts the mean dwell near 90s, and the geometric
        distribution means some layouts stick around for many minutes — which
        is the point. Do not speed this up to make it look busier. */
-    every(26000, () => {
+    every(30000, () => {
       if (missions.active()) return;
-      if (scenarioKey !== "idle" && Date.now() - lastSniff > 30000){ lastLayout = 0; setScenario("idle"); }
-      else if (Math.random() < .30) setLayout(pick(LAYOUTS[scenarioKey]));
+      const now = Date.now();
+      if (now - lastLayout < LAYOUT_HOLD_MS) return;      // respect the hold
+      if (scenarioKey !== "idle" && now - lastSniff > 45000){
+        scenarioKey = "idle"; load = .35;
+      }
+      if (Math.random() < .30){ lastLayout = now; setLayout(pick(LAYOUTS[scenarioKey])); }
     });
 
     /* Ambient operations. Without this the map and the missile arcs only
