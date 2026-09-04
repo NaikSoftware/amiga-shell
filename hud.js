@@ -7,6 +7,8 @@
    down every interval and rAF so an idle HUD costs nothing. */
 
 import { initMissions, MISSION_KEYS } from "./missions.js";
+import { EXTRA_GENERATORS } from "./missions-extra.js";
+import { EXTRA_PANELS, EXTRA_LAYOUTS } from "./panels-extra.js";
 
 const $ = id => document.getElementById(id);
 const rnd = (a,b) => a + Math.random()*(b-a);
@@ -132,13 +134,31 @@ const LAYOUTS = {
   task:  [["daemons","subsystems"], ["daemons","radar"]]
 };
 
+/* Agent F's extra generators, panels and layout rotations. Merged at module
+   scope so they are in place before the first panel mounts. */
+Object.assign(GENERATORS, EXTRA_GENERATORS);
+Object.assign(PANELS, EXTRA_PANELS);
+for (const k in EXTRA_LAYOUTS)
+  if (LAYOUTS[k]) LAYOUTS[k] = LAYOUTS[k].concat(EXTRA_LAYOUTS[k]);
+
+
 const OPNAME = {
   idle:"STANDBY", think:"NEURAL LINK", read:"SECTOR DUMP 0x4A2F",
   edit:"PATCHING BINARY", bash:"INJECTING PAYLOAD", net:"UPLINK ACTIVE", task:"SPAWNING DAEMON"
 };
 
 /* a tool call may kick off a matching mission — see the gate in initHud */
-const MISSION_FOR = {read:"gibson", edit:"delworld", bash:"kremlin", net:"icbm", task:"satellite"};
+/* Each scenario draws from a pool so the same tool call doesn't always
+   stage the same operation. Themed loosely: reading -> snooping, editing ->
+   destructive, bash -> intrusion, net -> long-haul comms, task -> summoning
+   something. All 19 are reachable from real work, not just Ctrl+Shift+M. */
+const MISSION_FOR = {
+  read: ["gibson", "enigma", "sentience", "y2k", "faxnet"],
+  edit: ["delworld", "system32", "gravity", "polarity", "agnus"],
+  bash: ["kremlin", "bitcoin", "demon", "pizza", "nyse"],
+  net:  ["icbm", "mothership", "voyager", "satellite", "faxnet"],
+  task: ["satellite", "sentience", "demon", "voyager", "bitcoin"]
+};
 
 /* ── requesters ────────────────────────────────────────────────────── */
 
@@ -321,7 +341,7 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
     const now = Date.now();
     // same scenario twice in a row (a run of Read calls) must not thrash the
     // layout — re-pick at most every 6s
-    if (next === scenarioKey && now - lastLayout < 6000) return;
+    if (next === scenarioKey && now - lastLayout < 25000) return;
     scenarioKey = next;
     lastLayout = now;
     load = scenarioKey === "idle" ? .35 : 1;
@@ -368,8 +388,13 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
     const now = Date.now();
     // one mission at a time, and no more than one per 45s, or a busy session
     // turns the terminal into a disco
-    if (!MISSION_FOR[key] || missions.active() || now - lastMission < 45000) return;
-    if (Math.random() < .5){ lastMission = now; missions.run(MISSION_FOR[key]); }
+    const pool = MISSION_FOR[key];
+    if (!pool || missions.active() || now - lastMission < 45000) return;
+    if (Math.random() < .5){
+      const pick = pool[Math.floor(Math.random() * pool.length)];
+      // an unknown key is a no-op in missions.run, so a typo degrades quietly
+      lastMission = now; missions.run(pick);
+    }
   });
 
   /* ── loops ── */
@@ -432,10 +457,27 @@ export function initHud({ hudEl, missionBarEl, config, effects }){
       });
     });
 
-    every(11000, () => {                                 // ambient rotation
+    /* Ambient rotation. Deliberately slow and probabilistic: a panel should
+       feel like equipment someone left running, not a slideshow. Checking
+       every 26s at 30% odds puts the mean dwell near 90s, and the geometric
+       distribution means some layouts stick around for many minutes — which
+       is the point. Do not speed this up to make it look busier. */
+    every(26000, () => {
       if (missions.active()) return;
-      if (scenarioKey !== "idle" && Date.now() - lastSniff > 20000){ lastLayout = 0; setScenario("idle"); }
-      else if (Math.random() < .6) setLayout(pick(LAYOUTS[scenarioKey]));
+      if (scenarioKey !== "idle" && Date.now() - lastSniff > 30000){ lastLayout = 0; setScenario("idle"); }
+      else if (Math.random() < .30) setLayout(pick(LAYOUTS[scenarioKey]));
+    });
+
+    /* Ambient operations. Without this the map and the missile arcs only
+       ever appear when the sniffer sees a Claude Code tool call, so a plain
+       shell session never sees them at all. Now the theater runs on its own
+       and Claude activity merely biases which operation gets staged. */
+    every(38000, () => {
+      if (missions.active() || Date.now() - lastMission < 38000) return;
+      if (Math.random() < .55){
+        lastMission = Date.now();
+        missions.run(MISSION_KEYS[Math.floor(Math.random() * MISSION_KEYS.length)]);
+      }
     });
 
     every(9000,  () => { if (Math.random() < .18 + cfg.glitchRate/100*.5) spawnRequester(); });

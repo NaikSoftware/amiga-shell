@@ -54,6 +54,11 @@ function normalizeConfig(raw) {
     fontSize: Number.isFinite(fontSize) ? Math.min(72, Math.max(6, fontSize)) : DEFAULTS.fontSize,
     bootSequence: typeof r.bootSequence === "boolean" ? r.bootSequence : DEFAULTS.bootSequence,
     hud: typeof r.hud === "boolean" ? r.hud : DEFAULTS.hud,
+    // "webgl" (default) or "dom" — the escape hatch when a GPU path misbehaves
+    renderer: r.renderer === "dom" ? "dom" : "webgl",
+    cursorStyle: ["block", "underline", "bar"].includes(r.cursorStyle) ? r.cursorStyle : "block",
+    cursorBlink: typeof r.cursorBlink === "boolean" ? r.cursorBlink : true,
+    fontFamily: typeof r.fontFamily === "string" && r.fontFamily.trim() ? r.fontFamily.trim() : null,
     effects
   };
 }

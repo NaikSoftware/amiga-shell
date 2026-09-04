@@ -8,6 +8,7 @@
    rebuilds them on init so it does not depend on markup in index.html. */
 
 import { createMap } from "./worldmap.js";
+import { EXTRA_MISSIONS } from "./missions-extra.js";
 
 const hex = n => Array.from({length:n},()=>"0123456789ABCDEF"[Math.floor(Math.random()*16)]).join("");
 
@@ -74,6 +75,9 @@ export const MISSIONS = {
     ]
   }
 };
+
+// Agent F's 14 extra operations, merged before MISSION_KEYS is derived.
+Object.assign(MISSIONS, EXTRA_MISSIONS);
 
 export const MISSION_KEYS = Object.keys(MISSIONS);
 

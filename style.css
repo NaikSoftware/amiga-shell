@@ -58,22 +58,20 @@ body{
 
 /* ── Workbench desktop ─────────────────────────────────────── */
 
-.menubar{
+/* One window, not two. The Electron frame IS the Workbench window: the
+   screen bar's memory counters live in the title bar instead of in a
+   second chrome stacked above it. */
+.meminfo{
   flex:0 0 auto;
-  background:var(--wb-white);
-  color:var(--wb-black);
-  font-family:var(--chrome);
-  font-size:8px;
-  letter-spacing:.5px;
-  padding:7px 10px;
-  display:flex;gap:18px;align-items:center;
-  border-bottom:2px solid var(--wb-black);
+  display:flex;align-items:center;gap:16px;
+  padding:0 14px;
+  font-family:var(--chrome);font-size:7px;letter-spacing:.5px;
+  color:var(--wb-blue-dk);
+  white-space:nowrap;
 }
-.menubar .grow{flex:1}
-.menubar .mem{color:var(--wb-blue-dk)}
 
 .desktop{
-  flex:1 1 auto;min-height:0;padding:12px;
+  flex:1 1 auto;min-height:0;padding:0;
   display:flex;position:relative;
 }
 
@@ -82,9 +80,10 @@ body{
   display:flex;flex-direction:column;
   background:var(--wb-blue);
   border:2px solid var(--wb-white);
-  outline:2px solid var(--wb-black);
-  box-shadow:0 0 0 2px var(--wb-blue-dk);
 }
+
+/* the counters are flavour, not information - drop them before the title */
+@media (max-width:900px){ .meminfo{display:none} }
 
 .titlebar{
   flex:0 0 auto;display:flex;align-items:stretch;

@@ -10,5 +10,8 @@
     "curvature": 15,
     "glitchRate": 8,
     "flicker": 5
-  }
+  },
+  "renderer": "webgl",
+  "cursorStyle": "block",
+  "cursorBlink": true
 }

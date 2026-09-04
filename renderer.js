@@ -48,10 +48,17 @@ const THEME = {
 
 const term = new Terminal({
   allowProposedApi: true,
-  fontFamily: "Topaz, Ubuntu Mono, monospace",
+  /* Topaz has a small glyph set and renders .notdef as a SOLID BLOCK, which
+     in Claude Code's input line looks exactly like a second cursor sitting
+     next to the real one. The tail of this stack exists to catch the symbols
+     Topaz lacks (box drawing, geometric shapes, arrows) before the browser
+     falls back to .notdef. Do not trim it back to just Topaz. */
+  fontFamily: cfg.fontFamily ||
+    "Topaz, 'Ubuntu Mono', 'DejaVu Sans Mono', 'Noto Sans Symbols 2', 'Noto Sans Mono', monospace",
   fontSize: Math.max(8, Math.round(Number(cfg.fontSize) || DEFAULTS.fontSize)),
   lineHeight: 1.05,
-  cursorBlink: true,
+  cursorBlink: cfg.cursorBlink !== false,
+  cursorStyle: cfg.cursorStyle || "block",
   scrollback: 10000,
   theme: THEME
 });
@@ -64,6 +71,10 @@ term.open($("term"));
 // shrug it off, keep the default renderer.
 let webglOn = false;
 try {
+  // config.renderer: "dom" forces the default renderer. The WebGL one is
+  // faster but can leave a stale cursor cell behind in some TUIs, which
+  // reads as a second, static cursor next to the real blinking one.
+  if (cfg.renderer === "dom") throw new Error("renderer forced to dom by config");
   const { WebglAddon } = await import("./node_modules/@xterm/addon-webgl/lib/addon-webgl.mjs");
   const webgl = new WebglAddon();
   webgl.onContextLoss(() => { webglOn = false; webgl.dispose(); });
