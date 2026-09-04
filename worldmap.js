@@ -79,7 +79,13 @@ export const CITY = {
    ever exists. */
 let newsMarkers = [];
 let newsMode = false;
-const NEWS_DWELL = 20;                        // seconds per story on the label
+const NEWS_DWELL = 20;
+/* Trace arcs. When the "now showing" story rotates, a trajectory flies from
+   the previous story's location to the new one — the same instrument as the
+   ICBM arcs, in amber and without the pretence of a warhead. Purely visual;
+   holds at most a handful of entries and drops them once they land. */
+const NEWS_ARC_DUR = 2.6;
+let newsArcs = [], newsLastCur = -1;                        // seconds per story on the label
 
 /* Replaces the marker set. Coordinates arrive already clamped from main.js's
    parser; what is left is map-specific — drop a story that would land on top
@@ -103,6 +109,7 @@ export function setNewsMarkers(list){
     out.push({lat:la, lon:lo, place, label: summary ? place + ": " + summary : place});
   }
   newsMarkers = out;
+  newsArcs = []; newsLastCur = -1;
 }
 
 /* hud.js decides when the map is in NEWS WATCH mode — during a scripted
@@ -119,10 +126,70 @@ export function currentNewsMarker(t){
    label on screen at a time, stepping through the stories every NEWS_DWELL
    seconds. Nothing in here allocates — colours are literals, alpha rides
    globalAlpha, and the label string was built when the markers arrived. */
+/* Amber trajectory between two news markers: a quadratic bezier drawn out to
+   flight progress, a bright head at the tip, and an expanding ring on arrival.
+   Same geometry as the ICBM arcs so the map reads as one instrument, but the
+   colour keeps real headlines visually separate from the fiction. */
+function paintNewsArcs(ctx, g, t){
+  if (!newsArcs.length) return;
+  const xy = (m) => [ g.ox + ((m.lon+180)/5.625)*g.cs,
+                      g.oy + ((90-m.lat)/5.625)*g.cs ];
+  for (let i = newsArcs.length - 1; i >= 0; i--){
+    const s = newsArcs[i];
+    const p = Math.min(1, (t - s.t0) / NEWS_ARC_DUR);
+    if (p <= 0) continue;
+    const a = xy(s.a), b = xy(s.b);
+    const d = Math.hypot(b[0]-a[0], b[1]-a[1]);
+    const mx = (a[0]+b[0])/2, my = (a[1]+b[1])/2 - d*.45;
+    const qx = (u) => (1-u)*(1-u)*a[0] + 2*(1-u)*u*mx + u*u*b[0];
+    const qy = (u) => (1-u)*(1-u)*a[1] + 2*(1-u)*u*my + u*u*b[1];
+
+    // the trail fades once it has landed, so old arcs retire on their own
+    const age = (t - s.t0) - NEWS_ARC_DUR;
+    const fade = age <= 0 ? 1 : Math.max(0, 1 - age / 2.2);
+    if (fade <= 0){ newsArcs.splice(i, 1); continue; }
+
+    ctx.globalAlpha = fade;
+    ctx.strokeStyle = "#FFB627";
+    ctx.lineWidth = 1.3;
+    ctx.beginPath(); ctx.moveTo(a[0], a[1]);
+    for (let u = 0; u <= p; u += .02) ctx.lineTo(qx(u), qy(u));
+    ctx.stroke();
+
+    if (p < 1){
+      ctx.fillStyle = "#FFFFFF";
+      ctx.fillRect(qx(p)-2, qy(p)-2, 4, 4);
+    } else if (!s.hit){
+      s.hit = true; s.ringAt = t;
+    }
+    if (s.hit){
+      const rp = (t - s.ringAt) / 1.4;
+      if (rp < 1){
+        ctx.globalAlpha = fade * (1 - rp);
+        ctx.strokeStyle = "#FFE9B0";
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(b[0], b[1], rp*30, 0, Math.PI*2); ctx.stroke();
+      }
+    }
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = 1;
+  }
+}
+
 function paintNews(ctx, g, t, w, h){
   if (!newsMarkers.length) return;
   const pulse = .55 + .45*Math.sin(t*1.8);
   const cur = Math.floor(Math.max(0,t) / NEWS_DWELL) % newsMarkers.length;
+
+  // rotation fires a trace from the story we were on to the one we move to
+  if (cur !== newsLastCur){
+    if (newsLastCur >= 0 && newsMarkers[newsLastCur])
+      newsArcs.push({ a: newsMarkers[newsLastCur], b: newsMarkers[cur], t0: t, hit: false });
+    newsLastCur = cur;
+    if (newsArcs.length > 4) newsArcs.shift();
+  }
+  paintNewsArcs(ctx, g, t);
+
   ctx.font = "10px monospace";
   ctx.lineWidth = 1.2;
   for (let i = 0; i < newsMarkers.length; i++){
