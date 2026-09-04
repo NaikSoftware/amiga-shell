@@ -152,8 +152,10 @@ export function initEffects({ screenEl, getSourceCanvas, config } = {}) {
     const html = rows.innerHTML;
     domR.innerHTML = html;
     domC.innerHTML = html;
-    domR.style.transform = `translate(${rnd(-9, 9).toFixed(1)}px,${rnd(-3, 3).toFixed(1)}px)`;
-    domC.style.transform = `translate(${rnd(-9, 9).toFixed(1)}px,${rnd(-3, 3).toFixed(1)}px)`;
+    const k = .35 + clamp(cfg.glitchRate, "glitchRate") / 100 * 1.6;
+    const dx = 6 * k, dy = 2 * k;
+    domR.style.transform = `translate(${rnd(-dx, dx).toFixed(1)}px,${rnd(-dy, dy).toFixed(1)}px)`;
+    domC.style.transform = `translate(${rnd(-dx, dx).toFixed(1)}px,${rnd(-dy, dy).toFixed(1)}px)`;
     return true;
   }
 
@@ -225,7 +227,11 @@ export function initEffects({ screenEl, getSourceCanvas, config } = {}) {
     if (now >= endAt) { endBurst(); return; }
     const t = 1 - (endAt - now) / 400;
     const src = source();
-    const amp = rnd(4, 12);
+    /* Displacement now scales with the intensity slider instead of being a
+       flat 4-12px. At CALM/MEDIUM the text stays legible through a burst;
+       only MAX throws it around the way it used to at every setting. */
+    const k = .35 + clamp(cfg.glitchRate, "glitchRate") / 100 * 1.6;
+    const amp = rnd(3, 8) * k;
     ctx.clearRect(0, 0, W, H);
     if (flavor === "roll")         paintRoll(src, t);
     else if (flavor === "corrupt") paintCorrupt(src);
@@ -244,7 +250,9 @@ export function initEffects({ screenEl, getSourceCanvas, config } = {}) {
 
   function glitch(ms) {
     if (reduced()) return;
-    const dur = Math.max(40, Number(ms) || rnd(80, 400));
+    // shorter than before: a long burst is what makes text unreadable, and
+    // the effect reads just as well as a flicker you barely catch
+    const dur = Math.max(40, Number(ms) || rnd(70, 220));
     endAt = performance.now() + dur;
     // With no readable canvas (the DOM renderer, the default) clone the live
     // text rows instead — a real glitch, not the coloured-bar stand-in.
@@ -259,8 +267,14 @@ export function initEffects({ screenEl, getSourceCanvas, config } = {}) {
 
   /* ── Poisson-ish scheduler (port of scheduleGlitch) ─────────── */
 
+  /* Ambient burst cadence. The old base of 1.4-14s put a glitch on screen
+     roughly every 11s at the medium preset, which is far too busy for a
+     window someone reads code in all day — it stops reading as an occasional
+     fault and starts reading as a broken monitor. 9-55s at medium means you
+     notice each one. MAX still crowds them together; CALM is nearly silent. */
   function scheduleGlitch() {
-    const wait = rnd(1400, 14000) * (12 / Math.max(1, clamp(cfg.glitchRate, "glitchRate")));
+    const rate = Math.max(1, clamp(cfg.glitchRate, "glitchRate"));
+    const wait = rnd(9000, 55000) * (10 / rate);
     timer = setTimeout(() => { timer = null; glitch(); scheduleGlitch(); }, wait);
   }
 

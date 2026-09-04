@@ -149,7 +149,11 @@ term.onData(d => {
   try {
     const enter = d === "\r" || d === "\n";
     effects && effects.pulse(enter ? 1 : 0.28);
-    if (enter && effects) effects.glitch(70);
+    /* Enter used to glitch every single time. When you are actually working
+       that is a burst every few seconds — the single biggest source of "too
+       frequent". Now it is occasional and short, so submitting a command
+       still sometimes kicks the tube without becoming a metronome. */
+    if (enter && effects && Math.random() < 0.12) effects.glitch(50);
     hud && hud.typed && hud.typed();
   } catch (e) { /* effects are decoration; input already went through */ }
 });
