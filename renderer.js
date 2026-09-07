@@ -178,6 +178,13 @@ function setTitle(t){
 setTitle("");
 term.onTitleChange(setTitle);
 
+/* ── effects level ─────────────────────────────────────────────
+   One fixed level, and no UI: the intensity presets are gone and so are the
+   GLITCH / GURU / REBOOT trigger buttons. The effects themselves still run
+   ambiently. config.json's per-effect 0-100 values are the only knobs. */
+
+const FX = { scanlines: 45, bloom: 30, curvature: 15, glitchRate: 8, flicker: 5 };
+
 /* ── effects + HUD (optional passengers) ───────────────────── */
 
 let effects = null;
@@ -209,13 +216,6 @@ if (amiga.shellError) {
   term.write(`\x1b[31mSoftware Failure.  ${amiga.shellError}\x1b[0m\r\n`);
   try { effects && effects.guru(); } catch (e) {}
 }
-
-/* ── effects level ─────────────────────────────────────────────
-   One fixed level, and no UI: the intensity presets are gone and so are the
-   GLITCH / GURU / REBOOT trigger buttons. The effects themselves still run
-   ambiently. config.json's per-effect 0-100 values are the only knobs. */
-
-const FX = { scanlines: 45, bloom: 30, curvature: 15, glitchRate: 8, flicker: 5 };
 
 /* ── HUD toggle ────────────────────────────────────────────── */
 
