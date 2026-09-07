@@ -369,9 +369,13 @@ ipcMain.on("pty:resize", (_e, cols, rows) => {
 });
 
 ipcMain.on("win:minimize", () => win && win.minimize());
+/* The zoom gadget goes to native full screen, not a maximised window: on
+   macOS that hands the app its own Space, exactly like any native app, and on
+   Linux and Windows it fills the display borderlessly. The renderer needs no
+   help — the ResizeObserver on the xterm host refits and resizes the PTY. */
 ipcMain.on("win:maximize", () => {
   if (!win) return;
-  win.isMaximized() ? win.unmaximize() : win.maximize();
+  win.setFullScreen(!win.isFullScreen());
 });
 ipcMain.on("win:close", () => win && win.close());
 
