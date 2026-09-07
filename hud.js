@@ -574,6 +574,10 @@ export function initHud({ hudEl, barEl, config, effects }){
       if (ev.key === "Enter" || ev.key === " "){ ev.preventDefault(); togglePin(); }
     });
     if (PINNED.has(key)) el.classList.add("pinned");
+    el.addEventListener("contextmenu", (ev) => {
+      ev.preventDefault();
+      openPicker(key, ev.clientX, ev.clientY);
+    });
     const bd = document.createElement("div");
     bd.className = "panel-bd";
     el.append(hd, bd);
@@ -842,6 +846,92 @@ export function initHud({ hudEl, barEl, config, effects }){
     return true;
   }
 
+  /* ── panel picker ─────────────────────────────────────────────────────
+     Right-click a panel to swap that slot for another panel of the SAME
+     region. Region-scoped because regionOf() refuses cross-region mounts:
+     offering a 290px column panel for a 500px bar slot would be a menu entry
+     that quietly does nothing.
+
+     The pick is not pinned. It takes the slot in place and resets the
+     region's hold timer, so it keeps that slot for a full LAYOUT_HOLD_MS and
+     then rotates like any other panel — pin it with the header gadget to
+     keep it for good. Panels already on screen in that region are left out
+     of the list rather than greyed out: setLayout() dedups its key list, so
+     picking a duplicate would silently shrink the region by a slot.
+
+     Keyboard route: contextmenu bubbles and the pin gadget is focusable, so
+     Shift+F10 (or the Menu key) there opens the same menu. The panels
+     themselves stay out of the tab order on purpose — a focusable panel
+     takes focus off the terminal on every click, which is a worse bug than
+     the one it fixes. */
+  let menuEl = null;
+
+  function onDocDown(ev){ if (menuEl && !menuEl.contains(ev.target)) closeMenu(); }
+  function onMenuKey(ev){ if (ev.key === "Escape"){ ev.preventDefault(); closeMenu(); } }
+
+  function closeMenu(){
+    if (!menuEl) return;
+    menuEl.remove();
+    menuEl = null;
+    document.removeEventListener("pointerdown", onDocDown, true);
+    document.removeEventListener("keydown", onMenuKey, true);
+  }
+
+  function replacePanel(rg, oldKey, newKey){
+    const keys = [...rg.mounted.keys()];
+    const i = keys.indexOf(oldKey);
+    if (i < 0 || !PANELS[newKey] || keys.includes(newKey)) return;
+    PINNED.delete(oldKey);        // it was told to go; a pin would drag it back
+    keys[i] = newKey;
+    rg.lastLayout = Date.now();   // the pick gets its full hold before rotation
+    setLayout(rg, keys);
+  }
+
+  function openPicker(key, x, y){
+    closeMenu();
+    if (!PANELS[key]) return;
+    const rg = REGIONS[regionOf(key)];
+    const taken = new Set(rg.mounted.keys());
+    const opts = Object.keys(PANELS)
+      .filter(k => regionOf(k) === rg.name && !BROKEN.has(k) && !taken.has(k))
+      .sort((a, b) => PANELS[a].title.localeCompare(PANELS[b].title));
+
+    menuEl = document.createElement("div");
+    menuEl.className = "panelmenu";
+    menuEl.setAttribute("role", "menu");
+    menuEl.innerHTML =
+      `<div class="pm-hd">REPLACE ${esc(PANELS[key].title)}</div>` +
+      (opts.length
+        ? opts.map(k => `<div class="pm-item" role="menuitem" tabindex="0" ` +
+            `data-key="${esc(k)}">${esc(PANELS[k].title)}</div>`).join("")
+        : `<div class="pm-item pm-none">no other panel fits this region</div>`);
+
+    const choose = (ev) => {
+      const item = ev.target.closest && ev.target.closest(".pm-item[data-key]");
+      if (!item) return false;
+      replacePanel(rg, key, item.dataset.key);
+      closeMenu();
+      return true;
+    };
+    menuEl.addEventListener("click", choose);
+    menuEl.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " "){ if (choose(ev)) ev.preventDefault(); }
+    });
+
+    desktop.appendChild(menuEl);
+    // clamp inside the desktop: a 30-entry menu opened near the edge would
+    // otherwise run off it, and there is nowhere to scroll to
+    const box = menuEl.getBoundingClientRect();
+    const host = desktop.getBoundingClientRect();
+    menuEl.style.left = Math.max(4, Math.min(x - host.left, host.width - box.width - 4)) + "px";
+    menuEl.style.top  = Math.max(4, Math.min(y - host.top,  host.height - box.height - 4)) + "px";
+
+    document.addEventListener("pointerdown", onDocDown, true);
+    document.addEventListener("keydown", onMenuKey, true);
+    const first = menuEl.querySelector(".pm-item[data-key]");
+    if (first) first.focus();
+  }
+
   function setScenario(key){
     const next = key in LAYOUTS ? key : "idle";
     const now = Date.now();
@@ -1051,6 +1141,7 @@ export function initHud({ hudEl, barEl, config, effects }){
     timers.splice(0).forEach(clearInterval);
     sizeObserver.disconnect();
     micsource.stop();          // F10 off must not leave the mic open
+    closeMenu();               // nor a picker floating over a hidden HUD
     eachRegion(teardown);      // both regions, pins included: no orphan intervals
     openReqs.forEach(el => el.remove());
     openReqs.clear();
