@@ -44,6 +44,7 @@ export const WIDE_PANELS = {
   wmap:     {title:"WORLD MAP",        kind:"canvas", paint:paintWorldMap,
              head:mapHead, wide:1},
   wactivity:{title:"CLAUDE ACTIVITY",  kind:"activity", rate:1000, wide:1},
+  wnews:    {title:"WIRE / UKRAINE",   kind:"news",     rate:15000, wide:1},
   wcores:   {title:"CPU CORES  LIVE", kind:"canvas", paint:paintCores,      wide:1},
   wstorage: {title:"STORAGE  LIVE",   kind:"canvas", paint:paintStorage,    wide:1},
   wsysinfo: {title:"SYSTEM  LIVE",    kind:"canvas", paint:paintVitalsReal, wide:1},
@@ -54,8 +55,9 @@ export const WIDE_PANELS = {
 };
 
 /* Same scenario keys as hud.js's LAYOUTS, three slots at a time — the bar has
-   three. Six of the nine panels are real: four machine telemetry, the real
-   /proc/net feed, the map's real headlines and the real sniffed tool calls.
+   three. Seven of the ten panels are real: four machine telemetry, the real
+   /proc/net feed, the map's real headlines, the live WIRE feed and the real
+   sniffed tool calls.
    That is the point of the bar: the machine you are actually sitting at.
 
    WORLD MAP is in most rotations of every scenario, because it is the one

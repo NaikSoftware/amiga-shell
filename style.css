@@ -365,6 +365,31 @@ body{
 .gadgetbar .sep{flex:1 1 auto}
 .gadgetbar .hint{font-family:var(--term);font-size:15px;color:#BFE3FF}
 
+/* ── panel picker ──────────────────────────────────────────── */
+/* The right-click menu on a panel. Workbench requester chrome, because that
+   is what a menu looked like on this machine. Sticky header so the label
+   stays put while a 30-entry list scrolls under it. */
+.panelmenu{
+  position:absolute;z-index:60;min-width:196px;max-height:62vh;overflow-y:auto;
+  background:var(--wb-blue);border:2px solid var(--wb-white);
+  outline:2px solid var(--wb-black);box-shadow:4px 4px 0 rgba(0,0,0,.45);
+  transform-origin:top left;animation:wbopen .12s steps(3);
+}
+.pm-hd{
+  position:sticky;top:0;
+  background:var(--wb-orange);color:var(--wb-black);
+  font-family:var(--chrome);font-size:7px;letter-spacing:.5px;padding:6px 8px;
+  border-bottom:2px solid var(--wb-white);
+}
+.pm-item{
+  font-family:var(--term);font-size:16px;line-height:1.15;
+  color:var(--wb-white);padding:4px 10px;cursor:pointer;white-space:nowrap;
+}
+.pm-item:hover,.pm-item:focus-visible{
+  background:var(--wb-white);color:var(--wb-black);outline:none;
+}
+.pm-none{opacity:.6;cursor:default}
+
 /* ── floating requesters ───────────────────────────────────── */
 
 .requester{

@@ -75,6 +75,7 @@ rather than leaving the mic indicator burning.
 | `Ctrl+Shift+C` / `Ctrl+Shift+V` | Copy / paste |
 | `Ctrl+Shift+L` | Shuffle panels |
 | `Ctrl+Shift+B` | Hide / show the gadget bar |
+| Right-click a panel | Replace it from a list of that region's panels |
 
 Every other key goes straight to the PTY untouched — including a bare
 `Ctrl-C`. Click the ◇ in any panel header to pin it; a pinned panel survives
